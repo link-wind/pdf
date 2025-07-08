@@ -1,0 +1,79 @@
+formula_parser:
+  confidence_threshold: 0.7
+  enable_latex_validation: true
+  engine: pp_formulanet
+  max_formula_height: 500
+  max_formula_width: 1000
+  model_size: L
+layout_analyzer:
+  # 模型配置
+  model_path: "doclayout.pt"        # DocLayout模型权重文件路径
+  model_type: "doclayout"           # 模型类型
+  
+  # 推理配置
+  confidence_threshold: 0.4         # 置信度阈值
+  iou_threshold: 0.45              # IoU阈值用于NMS
+  use_gpu: false                   # 是否使用GPU
+  batch_size: 4                    # 批处理大小
+  max_det: 300                     # 最大检测数量
+  input_size: 1280                 # 输入图像尺寸
+  
+  # 后处理配置
+  min_region_area: 50.0            # 最小区域面积
+  merge_nearby_regions: true       # 合并相邻区域
+  sort_by_reading_order: true      # 按阅读顺序排序
+  
+  # 可视化配置
+  visualization_enabled: true      # 启用可视化
+  show_confidence: true           # 显示置信度
+  show_class_names: true          # 显示类别名称
+  bbox_thickness: 2               # 边界框粗细
+  
+md_generator:
+  formula_format: latex
+  image_format: png
+  include_metadata: true
+  include_page_breaks: true
+  line_break_style: double
+  max_line_length: 80
+  preserve_formatting: false
+  table_format: markdown
+  title_level_thresholds:
+    level_1: 18
+    level_2: 16
+    level_3: 14
+    level_4: 12
+    level_5: 10
+ocr_processor:
+  confidence_threshold: 0.9
+  det_db_box_thresh: 0.6
+  det_db_thresh: 0.3
+  engine: paddleocr
+  language: ch
+  use_gpu: false
+pdf_converter:
+  dpi: 300
+  format: PNG
+  poppler_path: null
+  quality: 95
+  single_thread: true
+  use_cairo: true
+reading_order:
+  algorithm: layoutreader
+  batch_size: 1
+  column_detection: true
+  confidence_threshold: 0.6
+  enable_cross_page_analysis: false
+  fallback_to_spatial: true
+  layout_reader_model_path: hantian/layoutreader
+  max_sequence_length: 1024
+  merge_threshold: 0.3
+  num_reading_labels: 10
+  use_deep_learning_for_columns: true
+  use_layoutlmv3: true
+  use_layoutreader: true
+table_parser:
+  confidence_threshold: 0.8
+  merge_threshold: 0.3
+  method: PPStructure
+  min_table_size: 2
