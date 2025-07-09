@@ -72,3 +72,8 @@ table_parser:
   method: PPStructureV3
   min_table_size: 2
   use_gpu: true
+  # 大模型配置
+  use_llm: true                   # 是否使用大模型解析表格
+  llm_priority: true              # 是否优先使用大模型（设为true表示优先使用大模型）
+  llm_fallback: true              # 当传统方法失败时是否使用大模型作为后备
+  llm_api_key: null               # 大模型API密钥，null表示使用默认密钥

@@ -323,10 +323,10 @@ class LayoutAnalyzer:
                         )
                     else:
                         # 创建通用区域
-                    region = Region(
-                        region_type=region_type,
+                        region = Region(
+                            region_type=region_type,
                             **common_params
-                    )
+                        )
                     
                     regions.append(region)
             else:

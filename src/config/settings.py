@@ -87,10 +87,13 @@ class OCRProcessorConfig:
 @dataclass
 class TableParserConfig:
     """表格解析器配置"""
-    method: str = 'PPStructure'  # pdfplumber, tabula, PPStructure
-    min_table_size: int = 2
-    confidence_threshold: float = 0.7
-    merge_threshold: float = 0.1
+    use_gpu: bool = True  # 是否使用GPU加速
+    confidence_threshold: float = 0.8  # 置信度阈值
+    # LLM相关配置
+    use_llm: bool = False  # 是否使用LLM解析表格
+    llm_api_key: Optional[str] = None  # LLM API密钥，为None时使用默认值
+    llm_fallback: bool = True  # 当其他方法失败时是否使用LLM作为后备
+    llm_priority: bool = False  # 是否优先使用LLM（如果为True，会在其他方法之前先尝试LLM）
     
 
 @dataclass

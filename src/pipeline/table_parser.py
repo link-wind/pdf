@@ -18,6 +18,15 @@ except ImportError:
 from ..config.settings import TableParserConfig
 from ..models.document import TableRegion, TableData, BoundingBox
 
+# 尝试导入LLM工具
+try:
+    from ..utils.llm import parse_table_with_llm
+    llm_available = True
+    logger.info("LLM表格解析功能可用")
+except ImportError:
+    llm_available = False
+    logger.warning("无法导入LLM工具，不使用大模型解析表格")
+
 
 class TableParser:
     """基于PaddleOCR PPStructure的表格解析器"""
@@ -27,12 +36,30 @@ class TableParser:
         self.config = config
         self.table_model = None
         self.parser_type = "none"
+        
+        # 支持使用大模型
+        self.use_llm = getattr(self.config, 'use_llm', False)
+        self.llm_api_key = getattr(self.config, 'llm_api_key', None)
+        self.llm_fallback = getattr(self.config, 'llm_fallback', True)  # 当其他方法失败时是否使用LLM
+        self.llm_priority = getattr(self.config, 'llm_priority', False)  # 是否优先使用LLM
+        
+        # 如果设置了优先使用LLM但LLM不可用，打印警告
+        if self.use_llm and not llm_available:
+            logger.warning("配置了使用LLM但LLM模块不可用，将使用其他方法解析表格")
+        
+        # 初始化解析器
         self._init_parser()
-        logger.info("表格解析器初始化完成")
+        logger.info(f"表格解析器初始化完成，解析器类型: {self.parser_type}，使用LLM: {self.use_llm and llm_available}")
 
     def _init_parser(self) -> None:
         """初始化表格解析器"""
         try:
+            # 如果优先使用LLM且LLM可用，则只设置parser_type
+            if self.use_llm and llm_available and self.llm_priority:
+                self.parser_type = "llm"
+                logger.info("优先使用LLM解析表格，不初始化其他解析器")
+                return
+            
             # 尝试导入PPStructureV3
             try:
                 from paddleocr import PPStructureV3
@@ -44,47 +71,52 @@ class TableParser:
                 
             except (ImportError, AttributeError):
                 # 尝试导入旧版本的PPStructure
-            try:
-                from paddleocr import PPStructure
-                    
+                try:
+                    from paddleocr import PPStructure
+                        
                     # 初始化PPStructure
-                self.table_model = PPStructure(
-                    table=True,
-                    ocr=True,
-                    layout=False,
-                    lang='ch',
+                    self.table_model = PPStructure(
+                        table=True,
+                        ocr=True,
+                        layout=False,
+                        lang='ch',
                         use_gpu=getattr(self.config, 'use_gpu', True)
-                )
-                logger.info("PPStructure模型初始化成功")
-                self.parser_type = "ppstructure"
+                    )
+                    logger.info("PPStructure模型初始化成功")
+                    self.parser_type = "ppstructure"
                     
                 except (ImportError, AttributeError):
-                # 如果PPStructure不可用，使用基础的PaddleOCR
-                logger.warning("PPStructure不可用，使用基础OCR方式解析表格")
-                from paddleocr import PaddleOCR
-                self.table_model = PaddleOCR(
-                    use_angle_cls=True,
-                    lang='ch',
+                    # 如果PPStructure不可用，使用基础的PaddleOCR
+                    logger.warning("PPStructure不可用，使用基础OCR方式解析表格")
+                    from paddleocr import PaddleOCR
+                    self.table_model = PaddleOCR(
+                        use_angle_cls=True,
+                        lang='ch',
                         use_gpu=getattr(self.config, 'use_gpu', True)
-                )
-                self.parser_type = "basic_ocr"
-                logger.info("使用基础OCR模式进行表格解析")
+                    )
+                    self.parser_type = "basic_ocr"
+                    logger.info("使用基础OCR模式进行表格解析")
 
         except ImportError as e:
-            logger.error(f"PaddleOCR未安装，请运行: pip install paddleocr, 错误: {e}")
-            self.table_model = None
-            self.parser_type = "none"
+            if self.use_llm and llm_available:
+                logger.warning(f"PaddleOCR未安装，将使用LLM解析表格")
+                self.parser_type = "llm"
+            else:
+                logger.error(f"PaddleOCR未安装，请运行: pip install paddleocr, 错误: {e}")
+                self.parser_type = "none"
+                self.table_model = None
         except Exception as e:
             logger.error(f"表格解析器初始化失败: {str(e)}")
-            self.table_model = None
             self.parser_type = "none"
+            self.table_model = None
 
     def parse(self, table_region: TableRegion) -> TableRegion:
         """解析表格区域，返回包含解析结果的TableRegion对象"""
         try:
-            if self.table_model is None:
-                logger.warning("PPStructure模型未初始化")
-                return table_region  # 返回原始表格区域
+            # 如果没有解析器可用且不使用LLM，直接返回原始区域
+            if self.parser_type == "none" and not (self.use_llm and llm_available):
+                logger.warning("无可用的表格解析器")
+                return table_region
 
             # 解析表格并将结果添加到table_region对象
             table_data_list = self._parse_table(table_region)
@@ -116,18 +148,108 @@ class TableParser:
     def _parse_table(self, table_region: TableRegion) -> List[TableData]:
         """解析表格，支持不同的解析器类型"""
         try:
+            # 如果优先使用LLM，先尝试LLM解析
+            if self.parser_type == "llm" or (self.use_llm and llm_available and self.llm_priority):
+                logger.info("使用LLM进行表格解析")
+                result = self._parse_with_llm(table_region)
+                if result and (len(result) > 0):
+                    return result
+                
+                # 如果LLM解析失败且只使用LLM，则返回空结果
+                if self.parser_type == "llm":
+                    logger.warning("LLM表格解析失败，无备选解析器")
+                    return []
+                # 否则继续尝试其他解析器
+                logger.info("LLM解析失败，尝试其他解析器")
+            
+            # 使用其他解析器
             if self.parser_type == "ppstructure_v3":
-                return self._parse_with_ppstructure_v3(table_region)
+                result = self._parse_with_ppstructure_v3(table_region)
             elif self.parser_type == "ppstructure":
-                return self._parse_with_ppstructure(table_region)
+                result = self._parse_with_ppstructure(table_region)
             elif self.parser_type == "basic_ocr":
-                return self._parse_with_basic_ocr(table_region)
+                result = self._parse_with_basic_ocr(table_region)
             else:
-                logger.warning("表格解析器不可用，返回空结果")
-                return []
-
+                logger.warning("无可用的表格解析器")
+                result = []
+                
+            # 如果其他解析器失败，且可以尝试LLM作为后备，则尝试LLM
+            if (not result or len(result) == 0) and self.use_llm and llm_available and self.llm_fallback:
+                logger.info("常规解析失败，尝试使用LLM作为后备")
+                result = self._parse_with_llm(table_region)
+                
+            return result
+            
         except Exception as e:
             logger.error(f"表格解析失败: {str(e)}")
+            # 如果启用了LLM作为后备，即使出错也尝试使用LLM
+            if self.use_llm and llm_available and self.llm_fallback:
+                try:
+                    logger.info("常规解析出错，尝试使用LLM作为后备")
+                    return self._parse_with_llm(table_region)
+                except Exception as llm_e:
+                    logger.error(f"LLM后备解析也失败: {str(llm_e)}")
+                    
+            return []
+    
+    def _parse_with_llm(self, table_region: TableRegion) -> List[TableData]:
+        """使用大模型解析表格"""
+        if not llm_available:
+            logger.warning("LLM模块不可用，无法使用LLM解析表格")
+            return []
+            
+        try:
+            # 提取表格图像
+            table_image = self._extract_table_image(table_region)
+            if table_image is None:
+                return []
+                
+            # 保存到临时文件
+            temp_path = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
+                    table_image.save(tmp_file.name, 'PNG')
+                    temp_path = tmp_file.name
+                    
+                # 调用LLM解析
+                logger.info(f"使用LLM解析表格图像: {temp_path}")
+                headers, rows = parse_table_with_llm(temp_path, self.llm_api_key)
+                
+                # 如果解析结果为空，返回空列表
+                if not headers and not rows:
+                    logger.warning("LLM解析结果为空")
+                    return []
+                    
+                # 构建TableData对象
+                # 确保使用正确的BoundingBox对象
+                if isinstance(table_region.bbox, tuple):
+                    bbox = BoundingBox(
+                        x1=table_region.bbox[0],
+                        y1=table_region.bbox[1],
+                        x2=table_region.bbox[2],
+                        y2=table_region.bbox[3]
+                    )
+                else:
+                    bbox = table_region.bbox
+                
+                table_data = TableData(
+                    headers=headers,
+                    rows=rows,
+                    bbox=bbox,
+                    confidence=0.95,  # LLM置信度，使用默认值
+                    caption=None
+                )
+                
+                logger.info(f"LLM解析成功: {len(headers)}列表头, {len(rows)}行数据")
+                return [table_data]
+                
+            finally:
+                # 清理临时文件
+                if temp_path and os.path.exists(temp_path):
+                    os.unlink(temp_path)
+                    
+        except Exception as e:
+            logger.error(f"LLM表格解析错误: {str(e)}")
             return []
             
     def _parse_with_ppstructure_v3(self, table_region: TableRegion) -> List[TableData]:
