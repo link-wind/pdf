@@ -109,7 +109,7 @@ data/output/temp/
 data/output/markdown/
 logs/
 *.pdf
-!data/input/test/*.pdf
+!data/input/samples/*.pdf
 doclayout.pt
 test_output/
 output/
