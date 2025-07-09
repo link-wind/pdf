@@ -1,0 +1,74 @@
+{
+  "regions": [
+    {
+      "id": "1",
+      "type": "TITLE",
+      "bbox": {"x1": 100, "y1": 50, "x2": 700, "y2": 120},
+      "content": "这是标题",
+      "reading_order": 1
+    },
+    {
+      "id": "2",
+      "type": "TEXT",
+      "bbox": {"x1": 100, "y1": 150, "x2": 700, "y2": 250},
+      "content": "这是第一段正文内容",
+      "reading_order": 2
+    },
+    {
+      "id": "3",
+      "type": "TEXT",
+      "bbox": {"x1": 100, "y1": 270, "x2": 700, "y2": 370},
+      "content": "这是第二段正文内容",
+      "reading_order": 3
+    },
+    {
+      "id": "4",
+      "type": "FIGURE",
+      "bbox": {"x1": 150, "y1": 400, "x2": 650, "y2": 600},
+      "content": "图片内容",
+      "reading_order": 4
+    },
+    {
+      "id": "5",
+      "type": "FIGURE_CAPTION",
+      "bbox": {"x1": 150, "y1": 620, "x2": 650, "y2": 650},
+      "content": "图片标题: 示例图",
+      "reading_order": 5
+    },
+    {
+      "id": "6",
+      "type": "TEXT",
+      "bbox": {"x1": 100, "y1": 680, "x2": 700, "y2": 780},
+      "content": "这是第三段正文内容",
+      "reading_order": 6
+    },
+    {
+      "id": "7",
+      "type": "TABLE",
+      "bbox": {"x1": 120, "y1": 800, "x2": 680, "y2": 900},
+      "content": "表格内容",
+      "reading_order": 7
+    },
+    {
+      "id": "8",
+      "type": "TABLE_CAPTION",
+      "bbox": {"x1": 120, "y1": 920, "x2": 680, "y2": 950},
+      "content": "表格标题: 示例表",
+      "reading_order": 8
+    },
+    {
+      "id": "9",
+      "type": "TEXT",
+      "bbox": {"x1": 100, "y1": 980, "x2": 700, "y2": 1050},
+      "content": "结论段落",
+      "reading_order": 9
+    },
+    {
+      "id": "10",
+      "type": "FOOTER",
+      "bbox": {"x1": 300, "y1": 1100, "x2": 500, "y2": 1130},
+      "content": "页脚信息",
+      "reading_order": 10
+    }
+  ]
+} 

@@ -16,7 +16,7 @@ except ImportError:
     logger = logging.getLogger(__name__)
 
 from ..config.settings import TableParserConfig
-from ..models.document import TableRegion, TableData
+from ..models.document import TableRegion, TableData, BoundingBox
 
 
 class TableParser:
@@ -33,54 +33,92 @@ class TableParser:
     def _init_parser(self) -> None:
         """初始化表格解析器"""
         try:
-            # 尝试导入PPStructure
+            # 尝试导入PPStructureV3
+            try:
+                from paddleocr import PPStructureV3
+                
+                # 初始化PPStructureV3 - 不使用任何参数，使用默认配置
+                self.table_model = PPStructureV3()
+                logger.info("PPStructureV3模型初始化成功")
+                self.parser_type = "ppstructure_v3"
+                
+            except (ImportError, AttributeError):
+                # 尝试导入旧版本的PPStructure
             try:
                 from paddleocr import PPStructure
+                    
+                    # 初始化PPStructure
                 self.table_model = PPStructure(
                     table=True,
                     ocr=True,
                     layout=False,
                     lang='ch',
-                    use_gpu=True
+                        use_gpu=getattr(self.config, 'use_gpu', True)
                 )
                 logger.info("PPStructure模型初始化成功")
                 self.parser_type = "ppstructure"
-            except ImportError:
+                    
+                except (ImportError, AttributeError):
                 # 如果PPStructure不可用，使用基础的PaddleOCR
                 logger.warning("PPStructure不可用，使用基础OCR方式解析表格")
                 from paddleocr import PaddleOCR
                 self.table_model = PaddleOCR(
                     use_angle_cls=True,
                     lang='ch',
+                        use_gpu=getattr(self.config, 'use_gpu', True)
                 )
                 self.parser_type = "basic_ocr"
                 logger.info("使用基础OCR模式进行表格解析")
 
         except ImportError as e:
-            logger.error("PaddleOCR未安装，请运行: pip install paddleocr")
+            logger.error(f"PaddleOCR未安装，请运行: pip install paddleocr, 错误: {e}")
             self.table_model = None
             self.parser_type = "none"
         except Exception as e:
-            logger.error(f"PPStructure初始化失败: {str(e)}")
+            logger.error(f"表格解析器初始化失败: {str(e)}")
             self.table_model = None
+            self.parser_type = "none"
 
-    def parse(self, table_region: TableRegion) -> List[TableData]:
-        """解析表格区域"""
+    def parse(self, table_region: TableRegion) -> TableRegion:
+        """解析表格区域，返回包含解析结果的TableRegion对象"""
         try:
             if self.table_model is None:
                 logger.warning("PPStructure模型未初始化")
-                return []
+                return table_region  # 返回原始表格区域
 
-            return self._parse_table(table_region)
+            # 解析表格并将结果添加到table_region对象
+            table_data_list = self._parse_table(table_region)
+            
+            # 确保table_content属性存在并赋值
+            if table_data_list:
+                table_region.table_content = table_data_list
+                
+                # 同时设置content属性，用于兼容旧代码
+                if not hasattr(table_region, 'content') or not table_region.content:
+                    # 生成简单的表格文本表示
+                    table_texts = []
+                    for table_data in table_data_list:
+                        if table_data.headers:
+                            table_texts.append(" | ".join(table_data.headers))
+                        for row in table_data.rows:
+                            table_texts.append(" | ".join(row))
+                    table_region.content = "\n".join(table_texts)
+            
+            return table_region
 
         except Exception as e:
             logger.error(f"表格解析失败: {str(e)}")
-            return []
+            # 确保返回的对象至少有空的table_content属性
+            if not hasattr(table_region, 'table_content'):
+                table_region.table_content = []
+            return table_region
 
     def _parse_table(self, table_region: TableRegion) -> List[TableData]:
         """解析表格，支持不同的解析器类型"""
         try:
-            if self.parser_type == "ppstructure":
+            if self.parser_type == "ppstructure_v3":
+                return self._parse_with_ppstructure_v3(table_region)
+            elif self.parser_type == "ppstructure":
                 return self._parse_with_ppstructure(table_region)
             elif self.parser_type == "basic_ocr":
                 return self._parse_with_basic_ocr(table_region)
@@ -90,6 +128,65 @@ class TableParser:
 
         except Exception as e:
             logger.error(f"表格解析失败: {str(e)}")
+            return []
+            
+    def _parse_with_ppstructure_v3(self, table_region: TableRegion) -> List[TableData]:
+        """使用PPStructureV3解析表格"""
+        try:
+            # 提取表格图像
+            table_image = self._extract_table_image(table_region)
+            if table_image is None:
+                return []
+
+            # 保存到临时文件
+            temp_path = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
+                    table_image.save(tmp_file.name, 'PNG')
+                    temp_path = tmp_file.name
+
+                # PPStructureV3识别
+                output = self.table_model.predict(input=temp_path)
+                
+                # 解析结果
+                tables = []
+                for res in output:
+                    # 检查是否为表格类型
+                    if hasattr(res, 'type') and res.type == 'table':
+                        # 从结果中提取表格数据
+                        if hasattr(res, 'html'):
+                            headers, rows = self._parse_html(res.html)
+                            
+                            if headers or rows:
+                                # 确保使用正确的BoundingBox对象
+                                if isinstance(table_region.bbox, tuple):
+                                    bbox = BoundingBox(
+                                        x1=table_region.bbox[0],
+                                        y1=table_region.bbox[1],
+                                        x2=table_region.bbox[2],
+                                        y2=table_region.bbox[3]
+                                    )
+                                else:
+                                    bbox = table_region.bbox
+                                
+                                table_data = TableData(
+                                    headers=headers,
+                                    rows=rows,
+                                    bbox=bbox,
+                                    confidence=0.95,  # PPStructureV3不提供置信度，使用默认值
+                                    caption=None
+                                )
+                                tables.append(table_data)
+                                logger.debug(f"解析到表格: {len(headers)}列表头, {len(rows)}行数据")
+                
+                return tables
+
+            finally:
+                if temp_path and os.path.exists(temp_path):
+                    os.unlink(temp_path)
+
+        except Exception as e:
+            logger.error(f"PPStructureV3表格解析错误: {str(e)}")
             return []
 
     def _parse_with_ppstructure(self, table_region: TableRegion) -> List[TableData]:
@@ -144,10 +241,21 @@ class TableParser:
             if not headers and not rows:
                 return None
 
+            # 确保使用正确的BoundingBox对象
+            if isinstance(table_region.bbox, tuple):
+                bbox = BoundingBox(
+                    x1=table_region.bbox[0],
+                    y1=table_region.bbox[1],
+                    x2=table_region.bbox[2],
+                    y2=table_region.bbox[3]
+                )
+            else:
+                bbox = table_region.bbox
+
             return TableData(
                 headers=headers,
                 rows=rows,
-                bbox=table_region.bbox,
+                bbox=bbox,
                 confidence=0.95,
                 caption=None
             )
@@ -281,10 +389,9 @@ class TableParser:
                 result = self.table_model.ocr(temp_path, cls=True)
 
                 # 将OCR结果转换为简单的表格数据
-                table_data = []
+                text_lines = []
                 if result and result[0]:
                     # 按Y坐标排序，形成行
-                    text_lines = []
                     for line in result[0]:
                         if len(line) >= 2:
                             box = line[0]
@@ -300,17 +407,37 @@ class TableParser:
                     # 按Y坐标排序
                     text_lines.sort(key=lambda x: x[0])
                     
-                    # 创建简单的表格结构
-                    for i, (_, text) in enumerate(text_lines):
-                        table_data.append(TableData(
-                            row=i,
-                            col=0,
-                            text=text,
-                            confidence=0.8,  # 默认置信度
-                            bbox=table_region.bbox
-                        ))
+                # 如果有文本行，创建简单的表格结构
+                if text_lines:
+                    # 提取所有文本
+                    texts = [text for _, text in text_lines]
+                    
+                    # 确保使用正确的BoundingBox对象
+                    if isinstance(table_region.bbox, tuple):
+                        bbox = BoundingBox(
+                            x1=table_region.bbox[0],
+                            y1=table_region.bbox[1],
+                            x2=table_region.bbox[2],
+                            y2=table_region.bbox[3]
+                        )
+                    else:
+                        bbox = table_region.bbox
+                    
+                    # 创建一个简单的单列表格
+                    headers = ["内容"]
+                    rows = [[text] for text in texts]
+                    
+                    table_data = TableData(
+                        headers=headers,
+                        rows=rows,
+                        bbox=bbox,
+                        confidence=0.8,
+                        caption=None
+                    )
 
-                return table_data
+                    return [table_data]
+                
+                return []
 
             finally:
                 if temp_path and os.path.exists(temp_path):

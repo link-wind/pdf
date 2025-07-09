@@ -1,20 +1,18 @@
 """
-OCR处理器
-
-使用PaddleOCR进行光学字符识别
+OCR处理器 - 使用PaddleOCR进行光学字符识别
 """
 
 import cv2
 import numpy as np
 from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
-import logging
 
 try:
     from paddleocr import PaddleOCR
+    HAS_PADDLEOCR = True
 except ImportError:
     PaddleOCR = None
-    logging.warning("PaddleOCR not installed, OCR功能将不可用")
+    HAS_PADDLEOCR = False
 
 try:
     from loguru import logger
@@ -64,114 +62,46 @@ class OCRProcessor:
     """OCR处理器"""
     
     def __init__(self, config: Dict[str, Any]):
-        """初始化OCR处理器
-        
-        Args:
-            config: 配置字典
-        """
+        """初始化OCR处理器"""
         self.config = config
-        self.engine = getattr(config, 'engine', 'paddleocr')
         self.language = getattr(config, 'language', 'ch')
-        self.use_gpu = getattr(config, 'use_gpu', False)
-        self.confidence_threshold = getattr(config, 'confidence_threshold', 0.9)
+        self.use_gpu = getattr(config, 'use_gpu', True)
+        self.confidence_threshold = getattr(config, 'confidence_threshold', 0.8)
         self.det_db_thresh = getattr(config, 'det_db_thresh', 0.3)
         self.det_db_box_thresh = getattr(config, 'det_db_box_thresh', 0.6)
+        self.ocr_version = getattr(config, 'ocr_version', 'PP-OCRv5')
         
         # 初始化OCR引擎
         self.ocr_engine = None
         self._init_ocr_engine()
-        
-        logger.info("OCR处理器初始化完成")
     
     def _init_ocr_engine(self) -> None:
         """初始化OCR引擎"""
         try:
-            if PaddleOCR is None:
-                logger.error("PaddleOCR not available")
+            if not HAS_PADDLEOCR:
+                logger.error("PaddleOCR未安装，请使用pip install paddleocr")
                 return
             
-            # 如果启用GPU，设置PaddlePaddle使用GPU
-            if self.use_gpu:
-                import os
-                os.environ['CUDA_VISIBLE_DEVICES'] = '0'  # 使用第一块GPU
-                logger.info("设置CUDA_VISIBLE_DEVICES=0")
-                
-                # 设置PaddlePaddle使用GPU
-                try:
-                    import paddle
-                    if paddle.is_compiled_with_cuda():
-                        paddle.set_device('gpu:0')
-                        logger.info("PaddlePaddle设置为GPU模式")
-                    else:
-                        logger.warning("CUDA不可用，将使用CPU模式")
-                        paddle.set_device('cpu')
-                except Exception as e:
-                    logger.warning(f"设置GPU模式失败: {e}，将使用CPU模式")
-            else:
-                # 显式设置为CPU模式
-                try:
-                    import paddle
-                    paddle.set_device('cpu')
-                    logger.info("PaddlePaddle设置为CPU模式")
-                except Exception as e:
-                    logger.warning(f"设置CPU模式失败: {e}")
+            # 使用最新的PaddleOCR配置参数
+            self.ocr_engine = PaddleOCR(
+                lang=self.language,
+                det_db_thresh=self.det_db_thresh,
+                det_db_box_thresh=self.det_db_box_thresh,
+                ocr_version=self.ocr_version,
+                device="gpu" if self.use_gpu else "cpu",
+                use_doc_orientation_classify=False,  # 不使用文档方向分类模型
+                use_doc_unwarping=False,  # 不使用文本图像矫正模型
+                use_textline_orientation=False,  # 不使用文本行方向分类模型
+            )
             
-            # 尝试多种初始化方式
-            init_success = False
-            
-            # 方式1：使用最基本的参数
-            try:
-                self.ocr_engine = PaddleOCR(lang=self.language)
-                init_success = True
-                logger.info("使用基本参数初始化成功")
-            except Exception as e:
-                logger.warning(f"基本参数初始化失败: {e}")
-            
-            # 方式2：如果基本参数失败，尝试带角度分类
-            if not init_success:
-                try:
-                    self.ocr_engine = PaddleOCR(use_angle_cls=True, lang=self.language)
-                    init_success = True
-                    logger.info("使用use_angle_cls参数初始化成功")
-                except Exception as e:
-                    logger.warning(f"use_angle_cls参数初始化失败: {e}")
-            
-            # 方式3：尝试新的参数名
-            if not init_success:
-                try:
-                    self.ocr_engine = PaddleOCR(use_textline_orientation=True, lang=self.language)
-                    init_success = True
-                    logger.info("使用use_textline_orientation参数初始化成功")
-                except Exception as e:
-                    logger.warning(f"use_textline_orientation参数初始化失败: {e}")
-            
-            if not init_success:
-                self.ocr_engine = None
-                logger.error("所有初始化方式都失败")
-                return
-            
-            # 检查实际使用的设备
-            try:
-                import paddle
-                device = paddle.get_device()
-                logger.info(f"PaddleOCR引擎已初始化: {self.language} (设备: {device})")
-            except:
-                logger.info(f"PaddleOCR引擎已初始化: {self.language}")
+            logger.info(f"PaddleOCR引擎已初始化: 语言={self.language}, 版本={self.ocr_version}, 设备={'GPU' if self.use_gpu else 'CPU'}")
             
         except Exception as e:
             logger.error(f"OCR引擎初始化失败: {e}")
             self.ocr_engine = None
     
     def process_region(self, region: Region, image: np.ndarray) -> Dict[str, Any]:
-        """处理单个区域的OCR识别
-        
-        Args:
-            region: 要处理的区域
-            image: 页面图像（PIL Image或numpy数组）
-            
-        Returns:
-            Dict[str, Any]: OCR结果
-        """
+        """处理单个区域的OCR识别"""
         if self.ocr_engine is None:
             logger.warning("OCR引擎未初始化")
             return {'content': '', 'text_blocks': []}
@@ -185,15 +115,15 @@ class OCRProcessor:
             cropped_image = self._crop_region(image, region.bbox)
             
             # 进行OCR识别
-            result = self.ocr_engine.ocr(cropped_image, cls=True)
+            result = self.ocr_engine.predict(cropped_image)
             
             # 解析结果
-            text_content, text_blocks = self._parse_ocr_result(result, region.bbox)
+            text_content, text_blocks = self._parse_result(result, region.bbox)
             
             return {
                 'content': text_content,
                 'text_blocks': text_blocks,
-                'confidence': self._calculate_average_confidence(result)
+                'confidence': self._calculate_confidence(result)
             }
             
         except Exception as e:
@@ -201,24 +131,13 @@ class OCRProcessor:
             return {'content': '', 'text_blocks': []}
     
     def _crop_region(self, image: np.ndarray, bbox: BoundingBox) -> np.ndarray:
-        """裁剪图像区域
-        
-        Args:
-            image: 原始图像
-            bbox: 边界框
-            
-        Returns:
-            np.ndarray: 裁剪后的图像
-        """
+        """裁剪图像区域"""
         try:
-            x1, y1, x2, y2 = bbox.x1, bbox.y1, bbox.x2, bbox.y2
-            
-            # 确保坐标在有效范围内
             h, w = image.shape[:2]
-            x1 = max(0, min(x1, w-1))
-            y1 = max(0, min(y1, h-1))
-            x2 = max(x1+1, min(x2, w))
-            y2 = max(y1+1, min(y2, h))
+            x1 = max(0, min(bbox.x1, w-1))
+            y1 = max(0, min(bbox.y1, h-1))
+            x2 = max(x1+1, min(bbox.x2, w))
+            y2 = max(y1+1, min(bbox.y2, h))
             
             return image[y1:y2, x1:x2]
             
@@ -226,103 +145,100 @@ class OCRProcessor:
             logger.error(f"图像裁剪失败: {e}")
             return image
     
-    def _parse_ocr_result(self, result: List, region_bbox: BoundingBox) -> Tuple[str, List[TextElement]]:
-        """解析OCR结果
-        
-        Args:
-            result: PaddleOCR结果
-            region_bbox: 区域边界框
-            
-        Returns:
-            Tuple[str, List[TextElement]]: 文本内容和文本块列表
-        """
+    def _parse_result(self, result: List, region_bbox=None) -> Tuple[str, List[TextElement]]:
+        """解析OCR结果"""
         text_lines = []
         text_blocks = []
         
         try:
-            if result and result[0]:
-                for line in result[0]:
-                    if len(line) >= 2:
-                        # 获取文本框坐标
-                        box_coords = line[0]
-                        text_info = line[1]
-                        
-                        if len(text_info) >= 2:
-                            text = text_info[0]
-                            confidence = text_info[1]
-                            
-                            # 过滤低置信度文本
-                            if confidence >= self.confidence_threshold:
+            # 处理新版API结果格式
+            if isinstance(result, list) and len(result) > 0 and isinstance(result[0], dict):
+                for item in result:
+                    if 'rec_texts' in item and 'rec_scores' in item:
+                        for i, (text, score, poly) in enumerate(zip(item['rec_texts'], 
+                                                                   item['rec_scores'], 
+                                                                   item['rec_polys'])):
+                            if score >= self.confidence_threshold and text.strip():
                                 text_lines.append(text)
                                 
-                                # 创建文本元素
-                                # 将相对坐标转换为绝对坐标
-                                abs_coords = self._relative_to_absolute_coords(
-                                    box_coords, region_bbox
-                                )
+                                # 计算边界框
+                                xs = [point[0] for point in poly]
+                                ys = [point[1] for point in poly]
                                 
-                                text_element = TextElement(
+                                # 转换坐标
+                                if region_bbox:
+                                    x1 = int(region_bbox.x1 + min(xs))
+                                    y1 = int(region_bbox.y1 + min(ys))
+                                    x2 = int(region_bbox.x1 + max(xs))
+                                    y2 = int(region_bbox.y1 + max(ys))
+                                else:
+                                    x1 = int(min(xs))
+                                    y1 = int(min(ys))
+                                    x2 = int(max(xs))
+                                    y2 = int(max(ys))
+                                
+                                text_blocks.append(TextElement(
                                     text=text,
-                                    bbox=BoundingBox(*abs_coords),
-                                    confidence=confidence
-                                )
-                                text_blocks.append(text_element)
+                                    bbox=BoundingBox(x1, y1, x2, y2),
+                                    confidence=float(score)
+                                ))
             
-            # 合并文本行
+            # 处理旧版API结果格式
+            elif result and isinstance(result, list) and len(result) > 0 and isinstance(result[0], list):
+                for line in result[0]:
+                    if len(line) >= 2 and len(line[1]) >= 2:
+                        box_coords = line[0]
+                        text = line[1][0]
+                        confidence = line[1][1]
+                        
+                        if confidence >= self.confidence_threshold and text.strip():
+                            text_lines.append(text)
+                            
+                            # 计算边界框
+                            xs = [point[0] for point in box_coords]
+                            ys = [point[1] for point in box_coords]
+                            
+                            # 转换坐标
+                            if region_bbox:
+                                x1 = int(region_bbox.x1 + min(xs))
+                                y1 = int(region_bbox.y1 + min(ys))
+                                x2 = int(region_bbox.x1 + max(xs))
+                                y2 = int(region_bbox.y1 + max(ys))
+                            else:
+                                x1 = int(min(xs))
+                                y1 = int(min(ys))
+                                x2 = int(max(xs))
+                                y2 = int(max(ys))
+                            
+                            text_blocks.append(TextElement(
+                                text=text,
+                                bbox=BoundingBox(x1, y1, x2, y2),
+                                confidence=confidence
+                            ))
+            
             content = '\n'.join(text_lines)
-            
             return content, text_blocks
             
         except Exception as e:
             logger.error(f"OCR结果解析失败: {e}")
             return '', []
     
-    def _relative_to_absolute_coords(self, box_coords: List, region_bbox: BoundingBox) -> Tuple[int, int, int, int]:
-        """将相对坐标转换为绝对坐标
-        
-        Args:
-            box_coords: 相对于裁剪区域的坐标 - PaddleOCR返回四个点
-            region_bbox: 区域边界框
-            
-        Returns:
-            Tuple[int, int, int, int]: 绝对坐标 (x1, y1, x2, y2)
-        """
-        try:
-            # PaddleOCR返回的是四个点的坐标
-            xs = [point[0] for point in box_coords]
-            ys = [point[1] for point in box_coords]
-            
-            rel_x1, rel_y1 = min(xs), min(ys)
-            rel_x2, rel_y2 = max(xs), max(ys)
-            
-            # 转换为绝对坐标
-            abs_x1 = int(region_bbox.x1 + rel_x1)
-            abs_y1 = int(region_bbox.y1 + rel_y1)
-            abs_x2 = int(region_bbox.x1 + rel_x2)
-            abs_y2 = int(region_bbox.y1 + rel_y2)
-            
-            return abs_x1, abs_y1, abs_x2, abs_y2
-            
-        except Exception as e:
-            logger.error(f"坐标转换失败: {e}")
-            return region_bbox.x1, region_bbox.y1, region_bbox.x2, region_bbox.y2
-    
-    def _calculate_average_confidence(self, result: List) -> float:
-        """计算平均置信度
-        
-        Args:
-            result: OCR结果
-            
-        Returns:
-            float: 平均置信度
-        """
+    def _calculate_confidence(self, result: List) -> float:
+        """计算平均置信度"""
         try:
             confidences = []
-            if result and result[0]:
+            
+            # 处理新版API结果
+            if isinstance(result, list) and len(result) > 0 and isinstance(result[0], dict):
+                for item in result:
+                    if 'rec_scores' in item:
+                        confidences.extend([float(score) for score in item['rec_scores'] if score > 0])
+            
+            # 处理旧版API结果
+            elif result and isinstance(result, list) and len(result) > 0 and isinstance(result[0], list):
                 for line in result[0]:
                     if len(line) >= 2 and len(line[1]) >= 2:
-                        confidence = line[1][1]
-                        confidences.append(confidence)
+                        confidences.append(line[1][1])
             
             return sum(confidences) / len(confidences) if confidences else 0.0
             
@@ -331,14 +247,7 @@ class OCRProcessor:
             return 0.0
     
     def process_image(self, image_path: str) -> Dict[str, Any]:
-        """处理整张图像的OCR识别
-        
-        Args:
-            image_path: 图像路径
-            
-        Returns:
-            Dict[str, Any]: OCR结果
-        """
+        """处理整张图像的OCR识别"""
         if self.ocr_engine is None:
             logger.warning("OCR引擎未初始化")
             return {'content': '', 'text_blocks': []}
@@ -351,82 +260,27 @@ class OCRProcessor:
                 return {'content': '', 'text_blocks': []}
             
             # 进行OCR识别
-            result = self.ocr_engine.ocr(image, cls=True)
+            result = self.ocr_engine.predict(image)
             
             # 解析结果
-            text_content, text_blocks = self._parse_full_image_result(result)
+            text_content, text_blocks = self._parse_result(result)
             
             return {
                 'content': text_content,
                 'text_blocks': text_blocks,
-                'confidence': self._calculate_average_confidence(result)
+                'confidence': self._calculate_confidence(result)
             }
             
         except Exception as e:
             logger.error(f"图像OCR处理失败: {e}")
             return {'content': '', 'text_blocks': []}
     
-    def _parse_full_image_result(self, result: List) -> Tuple[str, List[TextElement]]:
-        """解析完整图像的OCR结果
-        
-        Args:
-            result: PaddleOCR结果
-            
-        Returns:
-            Tuple[str, List[TextElement]]: 文本内容和文本块列表
-        """
-        text_lines = []
-        text_blocks = []
-        
-        try:
-            if result and result[0]:
-                for line in result[0]:
-                    if len(line) >= 2:
-                        box_coords = line[0]
-                        text_info = line[1]
-                        
-                        if len(text_info) >= 2:
-                            text = text_info[0]
-                            confidence = text_info[1]
-                            
-                            if confidence >= self.confidence_threshold:
-                                text_lines.append(text)
-                                
-                                # 计算边界框
-                                xs = [point[0] for point in box_coords]
-                                ys = [point[1] for point in box_coords]
-                                
-                                bbox = BoundingBox(
-                                    int(min(xs)), int(min(ys)),
-                                    int(max(xs)), int(max(ys))
-                                )
-                                
-                                text_element = TextElement(
-                                    text=text,
-                                    bbox=bbox,
-                                    confidence=confidence
-                                )
-                                text_blocks.append(text_element)
-            
-            content = '\n'.join(text_lines)
-            return content, text_blocks
-            
-        except Exception as e:
-            logger.error(f"完整图像OCR结果解析失败: {e}")
-            return '', []
-    
     def get_engine_info(self) -> Dict[str, Any]:
-        """获取OCR引擎信息
-        
-        Returns:
-            Dict[str, Any]: 引擎信息
-        """
+        """获取OCR引擎信息"""
         return {
-            'engine': self.engine,
             'language': self.language,
-            'use_gpu': self.use_gpu,
             'confidence_threshold': self.confidence_threshold,
-            'det_db_thresh': self.det_db_thresh,
-            'det_db_box_thresh': self.det_db_box_thresh,
+            'ocr_version': self.ocr_version,
+            'device': 'GPU' if self.use_gpu else 'CPU',
             'engine_loaded': self.ocr_engine is not None
         }

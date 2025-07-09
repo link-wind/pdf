@@ -291,7 +291,7 @@ class MarkdownGenerator:
         """
         try:
             text_parts = []
-            title_level = 2  # 默认标题级别
+            title_level = 1  # 默认标题级别
             first_text_for_level = True
             
             # 如果是TextRegion且有text_content
@@ -383,6 +383,9 @@ class MarkdownGenerator:
             # 最后回退到文本内容生成
             else:
                 logger.warning(f"表格区域缺少table_content和content属性，回退到文本内容生成")
+                # 创建一个空的table_content属性以避免未来的错误
+                if not hasattr(table_region, 'table_content'):
+                    table_region.table_content = []
                 return self._generate_text_content(table_region)
                 
         except Exception as e:
@@ -586,39 +589,64 @@ class MarkdownGenerator:
     
     def _determine_title_level(self, text_data) -> int:
         """
-        根据字体大小智能判断标题级别，适配不同类型的输入对象。
+        根据区域高度智能判断标题级别，适配不同类型的输入对象。
         支持从配置文件读取阈值。
 
         Args:
-            text_data: 文本数据对象，可能是TextData、Region或其他包含font_size的对象
+            text_data: 文本数据对象，可能是TextData、Region或其他包含高度信息的对象
 
         Returns:
             int: 标题级别（1~6，1为最高级标题）
         """
         try:
-            # 尝试从不同属性获取字体大小
-            font_size = None
+            # 尝试从不同属性获取区域高度
+            region_height = None
             
-            # 优先尝试获取font_size属性
+            # 优先尝试获取区域高度
+            if hasattr(text_data, 'bbox') and text_data.bbox is not None:
+                if hasattr(text_data.bbox, 'height'):
+                    region_height = text_data.bbox.height
+                elif hasattr(text_data.bbox, 'y2') and hasattr(text_data.bbox, 'y1'):
+                    region_height = text_data.bbox.y2 - text_data.bbox.y1
+            
+            # 备选：尝试获取font_size属性
+            font_size = None
             if hasattr(text_data, 'font_size') and text_data.font_size is not None:
                 font_size = text_data.font_size
             # 备选：尝试avg_line_height
             elif hasattr(text_data, 'avg_line_height') and text_data.avg_line_height is not None:
-                font_size = text_data.avg_line_height+3
-            # 备选：尝试height属性（可能是bbox相关）
-            elif hasattr(text_data, 'height') and text_data.height is not None:
-                font_size = text_data.height
+                font_size = text_data.avg_line_height
+            # 备选：尝试height属性（如果没有bbox）
+            elif hasattr(text_data, 'height') and text_data.height is not None and region_height is None:
+                region_height = text_data.height
             
-            # 根据字体大小判断标题级别
-            if font_size is not None:
                 # 尝试从配置读取阈值，否则使用默认值
                 thresholds = getattr(self.config, 'title_level_thresholds', {})
-                level_1_threshold = thresholds.get('level_1', 18)
-                level_2_threshold = thresholds.get('level_2', 16)
-                level_3_threshold = thresholds.get('level_3', 14)
-                level_4_threshold = thresholds.get('level_4', 12)
-                level_5_threshold = thresholds.get('level_5', 10)
-                
+            level_1_threshold = thresholds.get('level_1', 16)
+            level_2_threshold = thresholds.get('level_2', 14)
+            level_3_threshold = thresholds.get('level_3', 12)
+            level_4_threshold = thresholds.get('level_4', 10)
+            level_5_threshold = thresholds.get('level_5', 8)
+            
+            # 优先使用区域高度判断
+            if region_height is not None:
+                # 根据区域高度的比例来判断标题级别
+                # 通常标题区域会比正文区域高
+                if region_height >= 50:      # 特大标题区域
+                    return 1
+                elif region_height >= 40:    # 大标题区域
+                    return 2
+                elif region_height >= 30:    # 中等标题区域
+                    return 3
+                elif region_height >= 20:    # 小标题区域
+                    return 4
+                elif region_height >= 15:    # 更小标题区域
+                    return 5
+                else:                        # 最小标题区域
+                    return 6
+            
+            # 如果没有区域高度信息，回退到使用字体大小
+            elif font_size is not None:
                 if font_size >= level_1_threshold:      # 特大标题
                     return 1
                 elif font_size >= level_2_threshold:    # 大标题
@@ -632,7 +660,7 @@ class MarkdownGenerator:
                 else:                                   # 最小标题
                     return 6
             
-            # 如果没有字体大小信息，尝试根据置信度调整
+            # 如果没有高度和字体大小信息，尝试根据置信度调整
             confidence = getattr(text_data, 'confidence', 1.0)
             if confidence >= 0.9:
                 return 2  # 高置信度，可能是重要标题

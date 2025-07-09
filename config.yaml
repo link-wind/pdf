@@ -7,12 +7,13 @@ formula_parser:
   model_size: L
 
 ocr_processor:
-  confidence_threshold: 0.9
+  confidence_threshold: 0.8
   det_db_box_thresh: 0.6
   det_db_thresh: 0.3
   engine: paddleocr
   language: ch
   use_gpu: true
+  ocr_version: PP-OCRv5
 
 layout_analyzer:
   # 模型配置
@@ -20,7 +21,7 @@ layout_analyzer:
   model_type: "doclayout"           # 模型类型
   
   # 推理配置
-  confidence_threshold: 0.6         # 置信度阈值
+  confidence_threshold: 0.4         # 置信度阈值
   iou_threshold: 0.40              # IoU阈值用于NMS
   use_gpu: true                  # 是否使用GPU
   batch_size: 4                    # 批处理大小
@@ -46,11 +47,11 @@ md_generator:
   preserve_formatting: false
   table_format: markdown
   title_level_thresholds:
-    level_1: 17
-    level_2: 16
-    level_3: 14
-    level_4: 12
-    level_5: 10
+    level_1: 16
+    level_2: 14
+    level_3: 12
+    level_4: 10
+    level_5: 8
 pdf_converter:
   dpi: 300
   format: PNG
@@ -68,5 +69,6 @@ reading_order:
 table_parser:
   confidence_threshold: 0.7
   merge_threshold: 0.2
-  method: PPStructure
+  method: PPStructureV3
   min_table_size: 2
+  use_gpu: true

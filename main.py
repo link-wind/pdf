@@ -163,6 +163,12 @@ def process_single_pdf(pdf_path, output_path, pipeline, verbose=False):
             # 移动或重命名输出文件到指定位置
             if result['output_path'] != output_path:
                 import shutil
+                import os
+                # 如果目标文件已存在则先删除
+                if os.path.exists(output_path):
+                    if os.path.isfile(output_path):
+                        os.remove(output_path)
+                    # 如果是目录，我们不处理，让shutil.move自动处理
                 shutil.move(result['output_path'], output_path)
             
             logger.info(f"处理完成，输出文件: {output_path}")
@@ -275,6 +281,12 @@ def process_pdf(args):
             # 移动或重命名输出文件到指定位置
             if result['output_path'] != args.output:
                 import shutil
+                import os
+                # 如果目标文件已存在则先删除
+                if os.path.exists(args.output):
+                    if os.path.isfile(args.output):
+                        os.remove(args.output)
+                    # 如果是目录，我们不处理，让shutil.move自动处理
                 shutil.move(result['output_path'], args.output)
             
             logger.info(f"处理完成，输出文件: {args.output}")

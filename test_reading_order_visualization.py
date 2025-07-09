@@ -133,6 +133,12 @@ class ReadingOrderVisualizer:
         # 按阅读顺序排序区域
         sorted_regions = sorted(regions, key=lambda r: getattr(r, 'reading_order', 999))
         
+        # 创建区域索引到阅读顺序的映射
+        reading_order_map = {}
+        for i, region in enumerate(sorted_regions):
+            if hasattr(region, 'reading_order') and region.reading_order < 999:
+                reading_order_map[region.reading_order] = i + 1
+        
         for i, region in enumerate(regions):
             if not hasattr(region, 'bbox') or region.bbox is None:
                 continue
@@ -174,9 +180,13 @@ class ReadingOrderVisualizer:
             )
             ax2.add_patch(rect2)
             
-            # 添加阅读顺序数字
+            # 添加阅读顺序数字 - 显示顺序号而不是区域索引
             center_x, center_y = (x1 + x2) // 2, (y1 + y2) // 2
-            ax2.text(center_x, center_y, str(reading_order), 
+            
+            # 查找该区域在阅读顺序中的位置（从1开始）
+            display_order = reading_order_map.get(reading_order, "?")
+            
+            ax2.text(center_x, center_y, str(display_order), 
                     fontsize=16, color='red', fontweight='bold',
                     ha='center', va='center',
                     bbox=dict(boxstyle="circle,pad=0.3", facecolor='white', alpha=0.9))
@@ -458,8 +468,9 @@ def main():
     
     parser = argparse.ArgumentParser(description="阅读顺序可视化测试")
     parser.add_argument("pdf_path", help="PDF文件路径")
-    parser.add_argument("-o", "--output", default="test_output", help="输出目录")
+    parser.add_argument("-o", "--output", default="output/test", help="输出目录")
     parser.add_argument("-v", "--verbose", action="store_true", help="详细输出")
+    parser.add_argument("-b", "--batch", action="store_true", help="批量处理目录中的所有PDF")
     
     args = parser.parse_args()
     
@@ -468,6 +479,12 @@ def main():
         logger.remove()
         logger.add(sys.stderr, level="DEBUG")
     
+    # 批量处理
+    if args.batch and os.path.isdir(args.pdf_path):
+        process_directory(args.pdf_path, args.output, args.verbose)
+        return
+    
+    # 单文件处理
     # 检查文件是否存在
     if not os.path.exists(args.pdf_path):
         logger.error(f"PDF文件不存在: {args.pdf_path}")
@@ -479,6 +496,39 @@ def main():
         print(f"\n✅ 测试完成! 查看报告: {report_path}")
     except Exception as e:
         logger.error(f"测试失败: {e}")
+
+
+def process_directory(directory_path: str, output_base: str, verbose: bool = False):
+    """批量处理目录中的所有PDF文件
+    
+    Args:
+        directory_path: PDF文件目录
+        output_base: 输出基础目录
+        verbose: 是否输出详细信息
+    """
+    pdf_files = [f for f in os.listdir(directory_path) if f.lower().endswith('.pdf')]
+    
+    if not pdf_files:
+        logger.error(f"目录 {directory_path} 中没有PDF文件")
+        return
+    
+    logger.info(f"找到 {len(pdf_files)} 个PDF文件")
+    
+    for i, pdf_file in enumerate(pdf_files):
+        pdf_path = os.path.join(directory_path, pdf_file)
+        pdf_name = os.path.splitext(pdf_file)[0]
+        output_dir = os.path.join(output_base, pdf_name)
+        
+        logger.info(f"处理 [{i+1}/{len(pdf_files)}]: {pdf_file}")
+        
+        try:
+            report_path = test_reading_order_with_visualization(pdf_path, output_dir)
+            logger.info(f"完成 {pdf_file}，报告: {report_path}")
+        except Exception as e:
+            logger.error(f"处理 {pdf_file} 失败: {e}")
+            if verbose:
+                import traceback
+                traceback.print_exc()
 
 
 if __name__ == "__main__":

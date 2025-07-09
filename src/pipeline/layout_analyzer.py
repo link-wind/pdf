@@ -24,11 +24,11 @@ except ImportError:
     YOLOv10 = None
 
 try:
-    from ..models.document import Region, RegionType, BoundingBox
+    from ..models.document import Region, RegionType, BoundingBox, TableRegion, FormulaRegion, ImageRegion, TextRegion
 except ImportError:
     # 如果相对导入失败，尝试绝对导入
     try:
-        from src.models.document import Region, RegionType, BoundingBox
+        from src.models.document import Region, RegionType, BoundingBox, TableRegion, FormulaRegion, ImageRegion, TextRegion
     except ImportError:
         # 如果还是失败，创建简单的替代类
         from typing import NamedTuple
@@ -65,6 +65,27 @@ except ImportError:
                 self.region_type = region_type
                 self.bbox = bbox
                 self.confidence = confidence
+        
+        # 简单的替代类
+        class TableRegion(Region):
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
+                self.table_content = []
+                
+        class FormulaRegion(Region):
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
+                self.formula_content = []
+                
+        class ImageRegion(Region):
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
+                self.image_content = []
+                
+        class TextRegion(Region):
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
+                self.text_content = []
 
 
 @dataclass
@@ -262,15 +283,49 @@ class LayoutAnalyzer:
                         # 其他区域使用占位符
                         content = f"[{label}]"
                     
-                    # 创建区域
+                    # 根据区域类型创建不同的区域对象
+                    common_params = {
+                        'bbox': bbox,
+                        'confidence': float(conf),
+                        'page_number': 0,  # 将在后续设置
+                        'reading_order': len(regions),
+                        'content': content,
+                        'metadata': {'original_label': label, 'class_id': class_id}
+                    }
+                    
+                    if region_type == RegionType.TABLE:
+                        # 创建表格区域
+                        region = TableRegion(
+                            region_type=region_type,
+                            table_content=[],  # 初始化为空列表
+                            **common_params
+                        )
+                    elif region_type == RegionType.FORMULA:
+                        # 创建公式区域
+                        region = FormulaRegion(
+                            region_type=region_type,
+                            formula_content=[],  # 初始化为空列表
+                            **common_params
+                        )
+                    elif region_type == RegionType.FIGURE:
+                        # 创建图像区域
+                        region = ImageRegion(
+                            region_type=region_type,
+                            image_content=[],  # 初始化为空列表
+                            **common_params
+                        )
+                    elif region_type == RegionType.TEXT or region_type == RegionType.TITLE:
+                        # 创建文本区域
+                        region = TextRegion(
+                            region_type=region_type,
+                            text_content=[],  # 初始化为空列表
+                            **common_params
+                        )
+                    else:
+                        # 创建通用区域
                     region = Region(
                         region_type=region_type,
-                        bbox=bbox,
-                        confidence=float(conf),
-                        page_number=0,  # 将在后续设置
-                        reading_order=len(regions),
-                        content=content,
-                        metadata={'original_label': label, 'class_id': class_id}
+                            **common_params
                     )
                     
                     regions.append(region)

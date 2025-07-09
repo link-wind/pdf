@@ -510,25 +510,26 @@ class ReadingOrderAnalyzer:
             logger.debug(f"LayoutLMv3预测完成，耗时: {elapsed:.3f}s")
             logger.debug(f"预测的原始顺序: {predicted_orders}")
             
-            # 4. 重新解释预测顺序：predicted_orders是按位置排序的区域索引列表
-            # predicted_orders[i] 表示第i+1位应该是哪个区域
+            # 4. 重新解释预测顺序：predicted_orders是区域索引的列表，按阅读顺序排序
+            # predicted_orders[i] 表示阅读顺序为i的区域索引
             ordered_regions = []
             for position, region_idx in enumerate(predicted_orders):
                 if region_idx < len(regions):
-                    regions[region_idx].reading_order = position + 1
+                    # 设置阅读顺序属性（保持从0开始，与预测结果一致）
+                    regions[region_idx].reading_order = position
                     ordered_regions.append(regions[region_idx])
             
             # 5. 如果有遗漏的区域，按原始顺序添加到最后
             for i, region in enumerate(regions):
                 if not hasattr(region, 'reading_order') or region.reading_order is None:
-                    region.reading_order = len(ordered_regions) + 1
+                    region.reading_order = len(ordered_regions)
                     ordered_regions.append(region)
             
             # 6. 输出最终排序结果
             logger.debug("最终阅读顺序:")
             for i, region in enumerate(ordered_regions):
                 content_preview = (region.content[:30] + '...') if hasattr(region, 'content') and region.content and len(region.content) > 30 else getattr(region, 'content', '[无内容]')
-                logger.debug(f"  {i+1}: {region.region_type.value if hasattr(region.region_type, 'value') else str(region.region_type)} - {content_preview}")
+                logger.debug(f"  {i}: {region.region_type.value if hasattr(region.region_type, 'value') else str(region.region_type)} - {content_preview}")
             
             return ordered_regions
             
@@ -536,7 +537,7 @@ class ReadingOrderAnalyzer:
             logger.error(f"LayoutLMv3分析失败: {e}")
             # 返回原始顺序
             for i, region in enumerate(regions):
-                region.reading_order = i + 1
+                region.reading_order = i
             return regions
     
     def _update_page_regions(self, page: Page, ordered_regions: List[Region]) -> None:
@@ -579,7 +580,7 @@ class ReadingOrderAnalyzer:
             sorted_regions = sorted(regions, key=get_sort_key)
             
             for i, region in enumerate(sorted_regions):
-                region.reading_order = i + 1
+                region.reading_order = i
                 
             logger.debug(f"设置默认阅读顺序，共 {len(sorted_regions)} 个区域")
             
