@@ -94,11 +94,6 @@ class LayoutAnalyzer:
         self.input_size = getattr(config, 'input_size', 1280)
         self.max_det = getattr(config, 'max_det', 300)
         
-        # 后处理配置
-        self.min_region_area = getattr(config, 'min_region_area', 50.0)
-        self.merge_nearby_regions = getattr(config, 'merge_nearby_regions', True)
-        self.sort_by_reading_order = getattr(config, 'sort_by_reading_order', True)
-        
         # 初始化模型
         self.model = None
         self._init_model()
@@ -131,9 +126,15 @@ class LayoutAnalyzer:
                 logger.warning(f"模型文件不存在: {self.model_path}")
                 return
             
-            # 加载模型
+            # 确定设备
             device = 'cuda' if self.use_gpu and torch.cuda.is_available() else 'cpu'
+            
+            # 加载模型并设置设备
             self.model = YOLOv10(str(model_path))
+            
+            # 如果有设备设置方法，尝试设置
+            if hasattr(self.model, 'to'):
+                self.model = self.model.to(device)
             
             logger.info(f"YOLO模型已加载: {self.model_path}")
             logger.info(f"使用设备: {device}")
@@ -181,11 +182,8 @@ class LayoutAnalyzer:
                 max_det=self.max_det
             )
             
-            # 解析结果
+            # 解析结果并直接返回，不进行任何后处理
             regions = self._parse_results(results, image.shape)
-            
-            # 后处理
-            regions = self._post_process_regions(regions)
             
             logger.debug(f"页面 {page_num} 检测到 {len(regions)} 个区域")
             return regions
@@ -243,6 +241,27 @@ class LayoutAnalyzer:
                     x1, y1, x2, y2 = map(int, box)
                     bbox = BoundingBox(x1, y1, x2, y2)
                     
+                    # 根据区域类型决定是否创建占位符内容
+                    content = ""
+                    if region_type in [RegionType.FIGURE, RegionType.CAPTION]:
+                        # 图片和标题区域不生成占位符内容
+                        content = ""
+                    elif region_type == RegionType.TEXT:
+                        # 文本区域将通过OCR填充内容
+                        content = ""
+                    elif region_type == RegionType.TABLE:
+                        # 表格区域将通过表格解析器填充内容
+                        content = ""
+                    elif region_type == RegionType.FORMULA:
+                        # 公式区域将通过公式解析器填充内容
+                        content = ""
+                    elif region_type == RegionType.TITLE:
+                        # 标题区域将通过OCR填充内容
+                        content = ""
+                    else:
+                        # 其他区域使用占位符
+                        content = f"[{label}]"
+                    
                     # 创建区域
                     region = Region(
                         region_type=region_type,
@@ -250,7 +269,7 @@ class LayoutAnalyzer:
                         confidence=float(conf),
                         page_number=0,  # 将在后续设置
                         reading_order=len(regions),
-                        content=f"[{label}]",  # 占位内容
+                        content=content,
                         metadata={'original_label': label, 'class_id': class_id}
                     )
                     
@@ -279,66 +298,16 @@ class LayoutAnalyzer:
             'Title': RegionType.TITLE,              # 0: 标题
             'PlainText': RegionType.TEXT,           # 1: 普通文本
             'Abandon': None,                        # 2: 页眉页脚等舍弃内容 - 跳过
-            'Figure': None,                         # 3: 图片 - 跳过
-            'FigureCaption': None,                  # 4: 图片标题 - 跳过
+            'Figure': RegionType.FIGURE,            # 3: 图片 - 保留用于阅读顺序分析
+            'FigureCaption': RegionType.CAPTION,    # 4: 图片标题 - 保留用于阅读顺序分析
             'Table': RegionType.TABLE,              # 5: 表格
-            'TableCaption': RegionType.TEXT,        # 6: 表格标题作为文本处理
-            'TableFootnote': None,                  # 7: 表格脚注 - 跳过
+            'TableCaption': RegionType.CAPTION,     # 6: 表格标题
+            'TableFootnote': RegionType.TEXT,       # 7: 表格脚注 - 保留用于阅读顺序分析
             'IsolateFormula': RegionType.FORMULA,   # 8: 行间公式
-            'FormulaCaption': None                  # 9: 公式标号 - 跳过
+            'FormulaCaption': RegionType.CAPTION    # 9: 公式标号 - 保留用于阅读顺序分析
         }
         
         return mapping.get(label, RegionType.TEXT)
-    
-    def _post_process_regions(self, regions: List[Region]) -> List[Region]:
-        """后处理检测区域
-        
-        Args:
-            regions: 原始区域列表
-            
-        Returns:
-            List[Region]: 处理后的区域列表
-        """
-        # 过滤小区域
-        filtered_regions = []
-        for region in regions:
-            area = region.bbox.width * region.bbox.height
-            if area >= self.min_region_area:
-                filtered_regions.append(region)
-        
-        # 合并相邻区域（如果启用）
-        if self.merge_nearby_regions:
-            filtered_regions = self._merge_nearby_regions(filtered_regions)
-        
-        # 按阅读顺序排序（如果启用）
-        if self.sort_by_reading_order:
-            filtered_regions = self._sort_by_reading_order(filtered_regions)
-        
-        return filtered_regions
-    
-    def _merge_nearby_regions(self, regions: List[Region]) -> List[Region]:
-        """合并相邻的同类型区域
-        
-        Args:
-            regions: 区域列表
-            
-        Returns:
-            List[Region]: 合并后的区域列表
-        """
-        # 简单实现：暂时不合并，直接返回
-        return regions
-    
-    def _sort_by_reading_order(self, regions: List[Region]) -> List[Region]:
-        """按阅读顺序排序区域
-        
-        Args:
-            regions: 区域列表
-            
-        Returns:
-            List[Region]: 排序后的区域列表
-        """
-        # 简单的从上到下、从左到右排序
-        return sorted(regions, key=lambda r: (r.bbox.y1, r.bbox.x1))
     
     def get_model_info(self) -> Dict[str, Any]:
         """获取模型信息

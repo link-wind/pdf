@@ -59,7 +59,6 @@ layout_analyzer:
   # 后处理配置
   min_region_area: 50.0             # 最小区域面积
   merge_nearby_regions: true        # 合并相邻区域
-  sort_by_reading_order: true       # 按阅读顺序排序
   
   # 可视化配置
   visualization_enabled: true       # 启用可视化
@@ -121,22 +120,10 @@ formula_parser:
 
 ```yaml
 reading_order:
-  # 阅读顺序算法 (layoutreader, spatial, etc.)
-  algorithm: layoutreader
-  # 是否使用LayoutReader模型
-  use_layoutreader: true
-  # LayoutReader模型路径
-  layout_reader_model_path: hantian/layoutreader
-  # 是否使用LayoutLMv3模型
+  # 仅支持LayoutLMv3模型
   use_layoutlmv3: true
-  # 是否启用列检测
-  column_detection: true
-  # 是否使用深度学习进行列检测
-  use_deep_learning_for_columns: true
-  # 是否在阅读顺序分析失败时回退到空间排序
-  fallback_to_spatial: true
-  # 是否启用跨页分析
-  enable_cross_page_analysis: false
+  # LayoutLMv3模型路径
+  layoutlmv3_model_path: "microsoft/layoutlmv3-base"
   # 批处理大小
   batch_size: 1
   # 最大序列长度
@@ -145,8 +132,6 @@ reading_order:
   num_reading_labels: 10
   # 置信度阈值
   confidence_threshold: 0.6
-  # 合并阈值
-  merge_threshold: 0.3
 ```
 
 ### Markdown生成器配置
@@ -202,7 +187,6 @@ layout_analyzer:
   input_size: 1280
   min_region_area: 50.0
   merge_nearby_regions: true
-  sort_by_reading_order: true
   visualization_enabled: true
   show_confidence: true
   show_class_names: true
@@ -238,12 +222,10 @@ reading_order:
   column_detection: true
   use_deep_learning_for_columns: true
   fallback_to_spatial: true
-  enable_cross_page_analysis: false
   batch_size: 1
   max_sequence_length: 1024
   num_reading_labels: 10
   confidence_threshold: 0.6
-  merge_threshold: 0.3
 
 md_generator:
   formula_format: latex

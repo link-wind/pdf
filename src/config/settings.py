@@ -60,8 +60,6 @@ class LayoutAnalyzerConfig:
     
     # 后处理配置
     min_region_area: float = 50.0  # 最小区域面积
-    merge_nearby_regions: bool = True  # 合并相邻区域
-    sort_by_reading_order: bool = True  # 按阅读顺序排序
     
     # 可视化配置
     visualization_enabled: bool = True
@@ -113,8 +111,7 @@ class ReadingOrderConfig:
     column_detection: bool = True
     merge_threshold: float = 0.1
     
-    # LayoutReader特定配置
-    use_layoutreader: bool = True
+    # LayoutLMv3深度学习模型配置（仅支持该模型）
     layout_reader_model_path: str = "hantian/layoutreader"
     num_reading_labels: int = 10  # 阅读顺序标签数量
     max_sequence_length: int = 512
@@ -123,11 +120,6 @@ class ReadingOrderConfig:
     
     # 深度学习增强配置
     use_layoutlmv3: bool = True
-    enable_cross_page_analysis: bool = False
-    use_deep_learning_for_columns: bool = True
-    
-    # 回退配置（当LayoutReader不可用时）
-    fallback_to_spatial: bool = True
     
 
 @dataclass

@@ -26,27 +26,40 @@ class TableParser:
         """初始化表格解析器"""
         self.config = config
         self.table_model = None
+        self.parser_type = "none"
         self._init_parser()
         logger.info("表格解析器初始化完成")
 
     def _init_parser(self) -> None:
-        """初始化PPStructure模型"""
+        """初始化表格解析器"""
         try:
-            from paddleocr import PPStructure
-
-            self.table_model = PPStructure(
-                table=True,
-                ocr=True,
-                layout=False,
-                show_log=False,
-                lang='ch',
-                use_gpu=True
-            )
-            logger.info("PPStructure模型初始化成功")
+            # 尝试导入PPStructure
+            try:
+                from paddleocr import PPStructure
+                self.table_model = PPStructure(
+                    table=True,
+                    ocr=True,
+                    layout=False,
+                    lang='ch',
+                    use_gpu=True
+                )
+                logger.info("PPStructure模型初始化成功")
+                self.parser_type = "ppstructure"
+            except ImportError:
+                # 如果PPStructure不可用，使用基础的PaddleOCR
+                logger.warning("PPStructure不可用，使用基础OCR方式解析表格")
+                from paddleocr import PaddleOCR
+                self.table_model = PaddleOCR(
+                    use_angle_cls=True,
+                    lang='ch',
+                )
+                self.parser_type = "basic_ocr"
+                logger.info("使用基础OCR模式进行表格解析")
 
         except ImportError as e:
             logger.error("PaddleOCR未安装，请运行: pip install paddleocr")
-            raise
+            self.table_model = None
+            self.parser_type = "none"
         except Exception as e:
             logger.error(f"PPStructure初始化失败: {str(e)}")
             self.table_model = None
@@ -65,6 +78,21 @@ class TableParser:
             return []
 
     def _parse_table(self, table_region: TableRegion) -> List[TableData]:
+        """解析表格，支持不同的解析器类型"""
+        try:
+            if self.parser_type == "ppstructure":
+                return self._parse_with_ppstructure(table_region)
+            elif self.parser_type == "basic_ocr":
+                return self._parse_with_basic_ocr(table_region)
+            else:
+                logger.warning("表格解析器不可用，返回空结果")
+                return []
+
+        except Exception as e:
+            logger.error(f"表格解析失败: {str(e)}")
+            return []
+
+    def _parse_with_ppstructure(self, table_region: TableRegion) -> List[TableData]:
         """使用PPStructure解析表格"""
         try:
             # 提取表格图像
@@ -129,245 +157,63 @@ class TableParser:
             return None
 
     def _parse_html(self, html_content: str) -> Tuple[List[str], List[List[str]]]:
-        """解析HTML表格内容，优化HTML到LaTeX转换"""
+        """简化的HTML表格解析"""
         try:
-            # 使用BeautifulSoup解析HTML
-            try:
-                from bs4 import BeautifulSoup
-                soup = BeautifulSoup(html_content, 'html.parser')
-                table = soup.find('table')
-
-                if not table:
-                    return [], []
-
-                # 提取表格矩阵，保留原始HTML格式信息
-                matrix = []
-                for tr in table.find_all('tr'):
-                    row = []
-                    for cell in tr.find_all(['td', 'th']):
-                        text = self._extract_cell_content_with_formatting(cell)
-                        row.append(text)
-                    if row:
-                        matrix.append(row)
-
-                if not matrix:
-                    return [], []
-
-                logger.debug(f"解析表格矩阵: {len(matrix)}行")
-
-                # 检查是否为单列表格且需要智能分割
-                if len(matrix) > 0 and all(len(row) == 1 for row in matrix):
-                    logger.info("检测到单列表格，启动智能分割")
-                    headers, rows = self._smart_split_single_column_table(matrix)
-
-                    if headers and rows:
-                        logger.info(f"智能分割成功: {len(headers)}列, {len(rows)}行")
-                        return headers, rows
-                    else:
-                        logger.warning("智能分割失败，使用原始格式")
-
-                # 正常多列表格处理
-                headers = matrix[0] if matrix else []
-                rows = matrix[1:] if len(matrix) > 1 else []
-
-                # 过滤空行但保留格式
-                rows = [row for row in rows if any(cell.strip() for cell in row)]
-
-                return headers, rows
-
-            except ImportError:
-                logger.warning("BeautifulSoup未安装，使用简单HTML解析")
-                return self._simple_html_parse(html_content)
-            except Exception as e:
-                logger.error(f"BeautifulSoup解析失败: {str(e)}")
-                return self._simple_html_parse(html_content)
-
-        except Exception as e:
-            logger.error(f"HTML解析失败: {str(e)}")
-            return [], []
-
-    def _extract_cell_content_with_formatting(self, cell) -> str:
-        """提取单元格内容，保留原始文本"""
-        try:
-            text = cell.get_text(separator=' ', strip=True)
-            return text
-        except Exception as e:
-            logger.debug(f"单元格内容提取失败: {e}")
-            return cell.get_text(strip=True) if cell else ""
-
-    def _smart_split_single_column_table(self, matrix: List[List[str]]) -> Tuple[List[str], List[List[str]]]:
-        """智能分割单列表格"""
-        try:
-            if not matrix:
-                return [], []
-
-            logger.debug(f"开始智能分割单列表格，原始数据: {matrix}")
-
-            # 分析表头内容
-            header_text = matrix[0][0].strip()
-
+            logger.debug(f"解析HTML表格内容: {html_content[:200]}...")
+            
+            # 使用正则表达式直接解析HTML表格
             import re
-
-            # 方法1: 基于语义和格式的智能分割
-            pattern = r'([^\s]+(?:\([^)]+\))?(?:\{[^}]+\})?)'
-            header_matches = re.findall(pattern, header_text)
-
-            if len(header_matches) >= 3:
-                headers = [match.strip() for match in header_matches]
-                logger.info(f"基于模式匹配识别表头: {headers}")
-
-                rows = []
-                for row in matrix[1:]:
-                    if not row or not row[0]:
-                        continue
-
-                    row_text = row[0].strip()
-                    row_parts = self._split_data_row_optimized(row_text, len(headers))
-
-                    if row_parts and len(row_parts) >= len(headers):
-                        rows.append(row_parts[:len(headers)])
-                        logger.debug(f"成功分割数据行: {row_parts[:len(headers)]}")
-
-                if rows:
-                    return headers, rows
-
-            # 方法2: 基于多个空格的分割
-            space_split = re.split(r'\s{2,}', header_text)
-            if len(space_split) > 1:
-                headers = [part.strip() for part in space_split if part.strip()]
-
-                rows = []
-                for row in matrix[1:]:
-                    if row and row[0]:
-                        row_parts = re.split(r'\s{2,}', row[0].strip())
-                        row_parts = [part.strip() for part in row_parts if part.strip()]
-                        if len(row_parts) >= len(headers):
-                            rows.append(row_parts[:len(headers)])
-
-                if rows:
-                    logger.info(f"基于空格分割成功: {len(headers)}列")
-                    return headers, rows
-
-            # 方法3: 回退到简单分割
-            return self._fallback_split_optimized(matrix)
-
-        except Exception as e:
-            logger.error(f"智能分割失败: {str(e)}")
-            return self._fallback_split_optimized(matrix)
-
-    def _split_data_row_optimized(self, row_text: str, expected_cols: int) -> List[str]:
-        """优化的数据行分割"""
-        try:
-            import re
-
-            patterns = [
-                r'([A-Za-z]+(?:\s+[A-Za-z]+)*)',
-                r'(-?\d+\.?\d*\s*\~\s*-?\d+\.?\d*)',
-                r'(-?\d+\.?\d*)',
-                r'(\([^)]+\))',
-                r'(\{[^}]+\})',
-            ]
-
-            parts = []
-            remaining_text = row_text.strip()
-            max_iterations = expected_cols * 2
-            iteration_count = 0
-
-            while remaining_text and len(parts) < expected_cols and iteration_count < max_iterations:
-                iteration_count += 1
-                found = False
-                for pattern in patterns:
-                    match = re.search(pattern, remaining_text)
-                    if match:
-                        matched_text = match.group(1)
-                        parts.append(matched_text.strip())
-                        remaining_text = remaining_text[:match.start()] + remaining_text[match.end():]
-                        remaining_text = remaining_text.strip()
-                        found = True
-                        break
-
-                if not found:
-                    words = remaining_text.split()
-                    if words:
-                        parts.append(words[0])
-                        remaining_text = ' '.join(words[1:])
-                    else:
-                        break
-
-            if remaining_text and len(parts) < expected_cols:
-                parts.append(remaining_text)
-
-            while len(parts) < expected_cols:
-                parts.append("")
-
-            return parts[:expected_cols]
-
-        except Exception as e:
-            logger.debug(f"优化数据行分割失败: {e}")
-            simple_parts = row_text.split()
-            if len(simple_parts) >= expected_cols:
-                return simple_parts[:expected_cols]
-            else:
-                simple_parts.extend([""] * (expected_cols - len(simple_parts)))
-                return simple_parts
-
-    def _fallback_split_optimized(self, matrix: List[List[str]]) -> Tuple[List[str], List[List[str]]]:
-        """优化的后备分割方案"""
-        try:
-            if not matrix:
-                return [], []
-
-            header_parts = [part for part in matrix[0][0].split()]
-
-            rows = []
-            for row in matrix[1:]:
-                if row and row[0]:
-                    row_parts = [part for part in row[0].split()]
-                    if row_parts:
-                        rows.append(row_parts)
-
-            return header_parts, rows
-
-        except Exception as e:
-            logger.error(f"优化后备分割失败: {e}")
-            return [matrix[0][0]] if matrix else [], [[row[0]] for row in matrix[1:] if row and row[0]]
-
-    def _simple_html_parse(self, html_content: str) -> Tuple[List[str], List[List[str]]]:
-        """简单HTML解析，当BeautifulSoup不可用时使用"""
-        try:
-            import re
-
+            
+            # 提取所有tr标签内容
             tr_pattern = r'<tr[^>]*>(.*?)</tr>'
-            rows_html = re.findall(tr_pattern, html_content, re.DOTALL | re.IGNORECASE)
-
-            if not rows_html:
+            tr_matches = re.findall(tr_pattern, html_content, re.DOTALL | re.IGNORECASE)
+            
+            if not tr_matches:
+                logger.warning("未找到表格行")
                 return [], []
-
+            
             matrix = []
-            for row_html in rows_html:
+            for tr_content in tr_matches:
+                # 提取td或th标签内容
                 cell_pattern = r'<t[hd][^>]*>(.*?)</t[hd]>'
-                cells = re.findall(cell_pattern, row_html, re.DOTALL | re.IGNORECASE)
-
-                clean_cells = []
-                for cell in cells:
-                    clean_text = re.sub(r'<[^>]+>', '', cell)
-                    clean_text = clean_text.replace('&nbsp;', ' ').replace('&amp;', '&')
-                    clean_text = clean_text.replace('&lt;', '<').replace('&gt;', '>')
-                    clean_cells.append(clean_text.strip())
-
-                if clean_cells:
-                    matrix.append(clean_cells)
-
+                cells = re.findall(cell_pattern, tr_content, re.DOTALL | re.IGNORECASE)
+                
+                if cells:
+                    # 清理单元格内容
+                    clean_cells = []
+                    for cell in cells:
+                        # 移除HTML标签
+                        clean_text = re.sub(r'<[^>]+>', '', cell)
+                        # 处理HTML实体
+                        clean_text = clean_text.replace('&nbsp;', ' ')
+                        clean_text = clean_text.replace('&amp;', '&')
+                        clean_text = clean_text.replace('&lt;', '<')
+                        clean_text = clean_text.replace('&gt;', '>')
+                        # 清理多余空白
+                        clean_text = ' '.join(clean_text.split())
+                        clean_cells.append(clean_text)
+                    
+                    if clean_cells:
+                        matrix.append(clean_cells)
+            
             if not matrix:
+                logger.warning("解析后表格为空")
                 return [], []
-
+            
+            logger.debug(f"解析得到表格矩阵: {matrix}")
+            
+            # 处理表格结构
             headers = matrix[0] if matrix else []
             rows = matrix[1:] if len(matrix) > 1 else []
-
+            
+            # 过滤空行
+            rows = [row for row in rows if any(cell.strip() for cell in row)]
+            
+            logger.info(f"表格解析完成: {len(headers)}列表头, {len(rows)}行数据")
             return headers, rows
-
+            
         except Exception as e:
-            logger.error(f"简单HTML解析失败: {str(e)}")
+            logger.error(f"HTML解析失败: {str(e)}")
             return [], []
 
     def _extract_table_image(self, table_region: TableRegion) -> Optional[Image.Image]:
@@ -415,3 +261,61 @@ class TableParser:
             'type': 'table_recognition',
             'available': self.table_model is not None
         }
+
+    def _parse_with_basic_ocr(self, table_region: TableRegion) -> List[TableData]:
+        """使用基础OCR解析表格（降级方案）"""
+        try:
+            # 提取表格图像
+            table_image = self._extract_table_image(table_region)
+            if table_image is None:
+                return []
+
+            # 保存到临时文件
+            temp_path = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
+                    table_image.save(tmp_file.name, 'PNG')
+                    temp_path = tmp_file.name
+
+                # 基础OCR识别
+                result = self.table_model.ocr(temp_path, cls=True)
+
+                # 将OCR结果转换为简单的表格数据
+                table_data = []
+                if result and result[0]:
+                    # 按Y坐标排序，形成行
+                    text_lines = []
+                    for line in result[0]:
+                        if len(line) >= 2:
+                            box = line[0]
+                            text_info = line[1]
+                            if len(text_info) >= 2:
+                                text = text_info[0]
+                                confidence = text_info[1]
+                                if confidence >= self.config.confidence_threshold:
+                                    # 获取Y坐标用于排序
+                                    y_coord = min([point[1] for point in box])
+                                    text_lines.append((y_coord, text))
+                    
+                    # 按Y坐标排序
+                    text_lines.sort(key=lambda x: x[0])
+                    
+                    # 创建简单的表格结构
+                    for i, (_, text) in enumerate(text_lines):
+                        table_data.append(TableData(
+                            row=i,
+                            col=0,
+                            text=text,
+                            confidence=0.8,  # 默认置信度
+                            bbox=table_region.bbox
+                        ))
+
+                return table_data
+
+            finally:
+                if temp_path and os.path.exists(temp_path):
+                    os.unlink(temp_path)
+
+        except Exception as e:
+            logger.error(f"基础OCR表格解析失败: {str(e)}")
+            return []

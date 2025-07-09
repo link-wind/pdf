@@ -38,7 +38,6 @@ def load_config_from_yaml(config_path: str = "config.yaml") -> LayoutAnalyzerCon
             max_det=layout_config.get('max_det', 300),
             min_region_area=layout_config.get('min_region_area', 50.0),
             merge_nearby_regions=layout_config.get('merge_nearby_regions', True),
-            sort_by_reading_order=layout_config.get('sort_by_reading_order', True),
             visualization_enabled=layout_config.get('visualization_enabled', True),
             show_confidence=layout_config.get('show_confidence', True),
             show_class_names=layout_config.get('show_class_names', True),

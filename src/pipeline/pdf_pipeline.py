@@ -355,13 +355,8 @@ class PDFPipeline:
                 # 更新Document对象的pages为PageLayout对象
                 document.pages = page_layouts
                 
-                # 统一调用阅读顺序分析
-                if self.processors['reading_order'].config.use_layoutreader:
-                    logger.info("启用LayoutReader阅读顺序分析")
-                else:
-                    logger.info("使用空间排序进行阅读顺序分析")
-                
-                logger.info(f"深度学习栏分析: {self.processors['reading_order'].use_deep_learning_for_columns}")
+                # 统一调用阅读顺序分析（仅使用LayoutLMv3深度学习模型）
+                logger.info("使用LayoutLMv3深度学习模型进行阅读顺序分析")
                 
                 self.processors['reading_order'].analyze_reading_order(document)
                 

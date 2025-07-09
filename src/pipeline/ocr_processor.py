@@ -90,16 +90,73 @@ class OCRProcessor:
                 logger.error("PaddleOCR not available")
                 return
             
-            self.ocr_engine = PaddleOCR(
-                use_angle_cls=True,
-                lang=self.language,
-                use_gpu=self.use_gpu,
-                det_db_thresh=self.det_db_thresh,
-                det_db_box_thresh=self.det_db_box_thresh,
-                show_log=False
-            )
+            # 如果启用GPU，设置PaddlePaddle使用GPU
+            if self.use_gpu:
+                import os
+                os.environ['CUDA_VISIBLE_DEVICES'] = '0'  # 使用第一块GPU
+                logger.info("设置CUDA_VISIBLE_DEVICES=0")
+                
+                # 设置PaddlePaddle使用GPU
+                try:
+                    import paddle
+                    if paddle.is_compiled_with_cuda():
+                        paddle.set_device('gpu:0')
+                        logger.info("PaddlePaddle设置为GPU模式")
+                    else:
+                        logger.warning("CUDA不可用，将使用CPU模式")
+                        paddle.set_device('cpu')
+                except Exception as e:
+                    logger.warning(f"设置GPU模式失败: {e}，将使用CPU模式")
+            else:
+                # 显式设置为CPU模式
+                try:
+                    import paddle
+                    paddle.set_device('cpu')
+                    logger.info("PaddlePaddle设置为CPU模式")
+                except Exception as e:
+                    logger.warning(f"设置CPU模式失败: {e}")
             
-            logger.info(f"PaddleOCR引擎已初始化: {self.language}")
+            # 尝试多种初始化方式
+            init_success = False
+            
+            # 方式1：使用最基本的参数
+            try:
+                self.ocr_engine = PaddleOCR(lang=self.language)
+                init_success = True
+                logger.info("使用基本参数初始化成功")
+            except Exception as e:
+                logger.warning(f"基本参数初始化失败: {e}")
+            
+            # 方式2：如果基本参数失败，尝试带角度分类
+            if not init_success:
+                try:
+                    self.ocr_engine = PaddleOCR(use_angle_cls=True, lang=self.language)
+                    init_success = True
+                    logger.info("使用use_angle_cls参数初始化成功")
+                except Exception as e:
+                    logger.warning(f"use_angle_cls参数初始化失败: {e}")
+            
+            # 方式3：尝试新的参数名
+            if not init_success:
+                try:
+                    self.ocr_engine = PaddleOCR(use_textline_orientation=True, lang=self.language)
+                    init_success = True
+                    logger.info("使用use_textline_orientation参数初始化成功")
+                except Exception as e:
+                    logger.warning(f"use_textline_orientation参数初始化失败: {e}")
+            
+            if not init_success:
+                self.ocr_engine = None
+                logger.error("所有初始化方式都失败")
+                return
+            
+            # 检查实际使用的设备
+            try:
+                import paddle
+                device = paddle.get_device()
+                logger.info(f"PaddleOCR引擎已初始化: {self.language} (设备: {device})")
+            except:
+                logger.info(f"PaddleOCR引擎已初始化: {self.language}")
             
         except Exception as e:
             logger.error(f"OCR引擎初始化失败: {e}")
@@ -224,7 +281,7 @@ class OCRProcessor:
         """将相对坐标转换为绝对坐标
         
         Args:
-            box_coords: 相对于裁剪区域的坐标
+            box_coords: 相对于裁剪区域的坐标 - PaddleOCR返回四个点
             region_bbox: 区域边界框
             
         Returns:

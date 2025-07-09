@@ -179,10 +179,40 @@ class MarkdownGenerator:
     def _generate_region_content(self, region: Region) -> str:
         """生成区域内容，只有TITLE类型生成标题格式，其他都生成文本格式"""
         try:
-            # 完全跳过图片区域，不生成任何内容
+            # 跳过图片区域和标题占位符，不生成任何内容
             if region.region_type == RegionType.IMAGE:
                 logger.debug(f"跳过图片区域: {region.bbox}")
                 return ""
+            
+            # 跳过FIGURE类型的区域（图片）
+            if region.region_type == RegionType.FIGURE:
+                logger.debug(f"跳过图片区域: {region.bbox}")
+                return ""
+            
+            # 跳过所有占位符内容（以[开头且以]结尾的内容）
+            if hasattr(region, 'content') and region.content:
+                content = region.content.strip()
+                if content.startswith('[') and content.endswith(']'):
+                    logger.debug(f"跳过占位符内容: {content}")
+                    return ""
+                
+                # 跳过常见的占位符模式
+                placeholder_patterns = [
+                    r'^\[Figure\]$',
+                    r'^\[FigureCaption\]$',
+                    r'^\[Table\]$',
+                    r'^\[TableCaption\]$',
+                    r'^\[Formula\]$',
+                    r'^\[FormulaCaption\]$',
+                    r'^\[Image\]$',
+                    r'^\[Caption\]$',
+                    r'^\[Abandon\]$'
+                ]
+                
+                for pattern in placeholder_patterns:
+                    if re.match(pattern, content):
+                        logger.debug(f"跳过占位符内容: {content}")
+                        return ""
             
             # 只有TITLE类型才生成标题格式
             if region.region_type == RegionType.TITLE:
@@ -193,7 +223,7 @@ class MarkdownGenerator:
             # 公式类型特殊处理
             elif region.region_type == RegionType.FORMULA:
                 return self._generate_formula_content(region)
-            # 其他所有类型（TEXT、HEADER、FOOTER等）都作为普通文本处理
+            # 其他所有类型（TEXT、HEADER、FOOTER、CAPTION等）都作为普通文本处理
             else:
                 return self._generate_text_content(region)
                 
@@ -232,6 +262,10 @@ class MarkdownGenerator:
             
             # 如果是普通Region且有content
             elif hasattr(region, 'content') and region.content:
+                # 跳过占位符内容
+                if region.content.strip().startswith('[') and region.content.strip().endswith(']'):
+                    return ""
+                
                 cleaned_text = self._clean_text(region.content)
                 if cleaned_text.strip():
                     content_parts.append(cleaned_text.strip())
@@ -280,6 +314,10 @@ class MarkdownGenerator:
             
             # 如果是普通Region且有content
             elif hasattr(region, 'content') and region.content:
+                # 跳过占位符内容
+                if region.content.strip().startswith('[') and region.content.strip().endswith(']'):
+                    return ""
+                
                 cleaned_text = self._clean_text(region.content)
                 if cleaned_text.strip():
                     text_parts.append(cleaned_text.strip())
