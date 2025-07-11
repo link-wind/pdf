@@ -77,7 +77,7 @@ def parse_table_with_llm(image_path: str, api_key: str = None) -> Tuple[List[str
                 logger.info(f"正在调用大模型解析表格: {image_path}")
                 response = dashscope.MultiModalConversation.call(
                     api_key=api_key,
-                    model='qwen-vl-max',  # 使用具备视觉能力的大模型
+                    model='qwen-vl-max-latest',  # 使用具备视觉能力的大模型
                     messages=messages
                 )
                 
