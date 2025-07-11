@@ -54,10 +54,11 @@ class TableParser:
     def _init_parser(self) -> None:
         """初始化表格解析器"""
         try:
-            # 如果优先使用LLM且LLM可用，则只设置parser_type
-            if self.use_llm and llm_available and self.llm_priority:
-                self.parser_type = "llm"
-                logger.info("优先使用LLM解析表格，不初始化其他解析器")
+            # 如果没有配置任何解析选项，直接返回
+            if not (self.use_llm):
+                logger.warning("未启用任何表格解析方法，表格将不会被解析")
+                self.parser_type = "none"
+                self.table_model = None
                 return
             
             # 尝试导入PPStructureV3
@@ -73,7 +74,7 @@ class TableParser:
                 # 尝试导入旧版本的PPStructure
                 try:
                     from paddleocr import PPStructure
-                        
+                    
                     # 初始化PPStructure
                     self.table_model = PPStructure(
                         table=True,
@@ -104,7 +105,7 @@ class TableParser:
             else:
                 logger.error(f"PaddleOCR未安装，请运行: pip install paddleocr, 错误: {e}")
                 self.parser_type = "none"
-                self.table_model = None
+            self.table_model = None
         except Exception as e:
             logger.error(f"表格解析器初始化失败: {str(e)}")
             self.parser_type = "none"
@@ -179,7 +180,7 @@ class TableParser:
                 result = self._parse_with_llm(table_region)
                 
             return result
-            
+
         except Exception as e:
             logger.error(f"表格解析失败: {str(e)}")
             # 如果启用了LLM作为后备，即使出错也尝试使用LLM

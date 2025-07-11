@@ -283,7 +283,7 @@ class LayoutAnalyzer:
                         # 其他区域使用占位符
                         content = f"[{label}]"
                     
-                    # 根据区域类型创建不同的区域对象
+                    # 创建通用参数
                     common_params = {
                         'bbox': bbox,
                         'confidence': float(conf),
@@ -293,6 +293,7 @@ class LayoutAnalyzer:
                         'metadata': {'original_label': label, 'class_id': class_id}
                     }
                     
+                    # 根据区域类型创建相应的区域对象
                     if region_type == RegionType.TABLE:
                         # 创建表格区域
                         region = TableRegion(

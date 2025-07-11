@@ -400,7 +400,7 @@ class MarkdownGenerator:
         return ""
     
     def _generate_formula_content(self, formula_region: FormulaRegion) -> str:
-        """增强公式处理"""
+        """增强公式处理，确保公式能正确在Markdown中渲染"""
         if not formula_region.formula_content:
             return ""
 
@@ -420,6 +420,7 @@ class MarkdownGenerator:
 
             # 根据配置生成不同格式
             if self.config.formula_format == "latex":
+                # 使用双美元符号，确保整行居中显示
                 content_parts.append(f"$$\n{latex}\n$$")
             else:
                 # 新增编号和引用支持
@@ -431,7 +432,7 @@ class MarkdownGenerator:
                 content_parts.append(f"*{formula.description}*")
 
         return "\n\n".join(content_parts) if content_parts else ""
-
+        
     def _post_process_markdown(self, content: str) -> str:
         """增强的Markdown后处理"""
         if not content:
@@ -620,8 +621,8 @@ class MarkdownGenerator:
             elif hasattr(text_data, 'height') and text_data.height is not None and region_height is None:
                 region_height = text_data.height
             
-                # 尝试从配置读取阈值，否则使用默认值
-                thresholds = getattr(self.config, 'title_level_thresholds', {})
+            # 尝试从配置读取阈值，否则使用默认值
+            thresholds = getattr(self.config, 'title_level_thresholds', {})
             level_1_threshold = thresholds.get('level_1', 16)
             level_2_threshold = thresholds.get('level_2', 14)
             level_3_threshold = thresholds.get('level_3', 12)

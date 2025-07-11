@@ -222,38 +222,48 @@ class PDFPipeline:
                                 logger.warning(f"加载页面图像失败: {e}")
                                 table_region.page_image = None
                             
-                            # 调用解析器
+                            # 调用表格解析器
                             try:
-                                table_data_list = self.processors['table_parser'].parse(table_region)
-                                if table_data_list and len(table_data_list) > 0:
-                                    # 将解析结果存储到TableRegion的table_content属性
-                                    table_region.table_content = table_data_list
+                                # 解析表格，返回修改后的表格区域对象
+                                parsed_region = self.processors['table_parser'].parse(table_region)
+                                
+                                # 检查解析结果并处理
+                                if hasattr(parsed_region, 'table_content') and parsed_region.table_content:
+                                    # 使用解析后的表格区域替换原始区域
+                                    table_region = parsed_region
                                     
-                                    # 同时生成Markdown格式的content作为备用
-                                    table_data = table_data_list[0]
+                                    # 处理第一个表格数据，生成Markdown格式
+                                    table_data = table_region.table_content[0]
                                     if hasattr(table_data, 'headers') and hasattr(table_data, 'rows'):
+                                        # 生成Markdown表格
                                         markdown_table = self._convert_table_to_markdown(table_data)
                                         table_region.content = markdown_table
+                                        
+                                        # 设置表格元数据
                                         table_region.metadata = {
-                                            'row_count': table_data.row_count,
-                                            'col_count': table_data.col_count,
-                                            'confidence': table_data.confidence,
-                                            'caption': table_data.caption
+                                            'row_count': getattr(table_data, 'row_count', len(table_data.rows)),
+                                            'col_count': getattr(table_data, 'col_count', len(table_data.headers) if table_data.headers else 0),
+                                            'confidence': getattr(table_data, 'confidence', 0.0),
+                                            'caption': getattr(table_data, 'caption', None)
                                         }
+                                        logger.debug(f"表格解析成功: {len(table_data.headers)} 列, {len(table_data.rows)} 行")
                                     else:
-                                        # 兼容旧格式
+                                        # 兼容旧格式的表格数据
                                         table_region.content = getattr(table_data, 'table_html', '') or getattr(table_data, 'table_text', '') or ''
                                         table_region.metadata = getattr(table_data, 'metadata', {})
                                 else:
-                                    table_region.table_content = []
+                                    # 确保table_content字段存在
+                                    if not hasattr(table_region, 'table_content'):
+                                        table_region.table_content = []
                                     table_region.content = ""
-                                    logger.warning(f"表格解析未识别到内容，跳过区域")
+                                    logger.warning("表格解析未返回有效内容")
                                 
-                                # 替换原始region为TableRegion
+                                # 将处理后的TableRegion替换原始region
                                 page.regions[page.regions.index(region)] = table_region
                                 
                             except Exception as e:
                                 logger.warning(f"表格解析失败: {e}")
+                                # 确保返回的对象至少有基本字段
                                 table_region.table_content = []
                                 table_region.content = ""
                                 # 即使解析失败也替换为TableRegion，保持类型一致性
@@ -512,6 +522,4 @@ class PDFPipeline:
             
         except Exception as e:
             logger.error(f"表格转换为Markdown失败: {e}")
-            return ""
-    
-
+            return "" 

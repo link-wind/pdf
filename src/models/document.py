@@ -194,6 +194,14 @@ class TableRegion(Region):
     
     def __post_init__(self):
         self.region_type = RegionType.TABLE
+        if self.table_content is None:
+            self.table_content = []
+    
+    def __len__(self):
+        """实现__len__方法，返回表格内容列表的长度"""
+        if self.table_content is None:
+            return 0
+        return len(self.table_content)
 
 
 @dataclass

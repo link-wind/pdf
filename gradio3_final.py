@@ -83,7 +83,7 @@ def process_pdf(pdf_file, page_number=1):
             else:
                 # 直接处理字节内容
                 logger.info("从字节数据保存PDF")
-                temp_file.write(pdf_file)
+            temp_file.write(pdf_file)
             
             logger.info(f"PDF保存到临时文件: {temp_path}")
         
@@ -96,7 +96,7 @@ def process_pdf(pdf_file, page_number=1):
             if pdf_images:
                 return pdf_images, None, "初始化处理管道失败，但可以查看PDF内容", None
             else:
-                return None, None, "初始化处理管道失败", None
+            return None, None, "初始化处理管道失败", None
         
         # 处理PDF文件
         logger.info(f"开始处理PDF: {temp_path}")
@@ -129,7 +129,7 @@ def process_pdf(pdf_file, page_number=1):
             # 读取生成的Markdown文件
             try:
                 with open(output_path, 'r', encoding='utf-8') as f:
-                    markdown_text = f.read()
+                markdown_text = f.read()
                 
                 # 检查Markdown内容是否为空
                 if not markdown_text:
@@ -147,8 +147,8 @@ def process_pdf(pdf_file, page_number=1):
             
             # 将Markdown转换为HTML以便显示
             try:
-                html_content = markdown.markdown(markdown_text, extensions=['tables', 'fenced_code'])
-                
+            html_content = markdown.markdown(markdown_text, extensions=['tables', 'fenced_code'])
+            
                 # 添加MathJax支持，包装HTML内容
                 html_content = f"""
                 <div id="markdown-content">
@@ -182,8 +182,8 @@ def process_pdf(pdf_file, page_number=1):
             
             # 检查metadata是否存在
             if 'metadata' in result:
-                info_text += f"页数: {result['metadata'].get('pages_count', 'N/A')}\n"
-                info_text += f"识别区域: {result['metadata'].get('total_regions', 'N/A')}个\n"
+            info_text += f"页数: {result['metadata'].get('pages_count', 'N/A')}\n"
+            info_text += f"识别区域: {result['metadata'].get('total_regions', 'N/A')}个\n"
             else:
                 info_text += f"页数: {len(pdf_images)}\n"
                 info_text += "识别区域: N/A\n"
@@ -199,7 +199,7 @@ def process_pdf(pdf_file, page_number=1):
             if pdf_images:
                 return pdf_images, None, f"处理失败: {error_msg}", None
             else:
-                return None, None, f"处理失败: {error_msg}", None
+            return None, None, f"处理失败: {error_msg}", None
     
     except Exception as e:
         logger.error(f"处理PDF文件时出错: {e}")
@@ -244,22 +244,22 @@ def get_pdf_images(pdf_file):
             pdf_document = fitz.open(temp_path)
             page_count = len(pdf_document)
             logger.info(f"PDF页数: {page_count}")
-            
-            # 提取所有页面的图像
-            images = []
+        
+        # 提取所有页面的图像
+        images = []
             for page_num in range(page_count):
                 logger.info(f"处理PDF页面 {page_num+1}/{page_count}")
-                page = pdf_document[page_num]
-                # 渲染页面为图像
+            page = pdf_document[page_num]
+            # 渲染页面为图像
                 try:
                     # 尝试更高分辨率
                     zoom_factor = 2.0  # 2x缩放以提高清晰度
                     mat = fitz.Matrix(zoom_factor, zoom_factor)
                     pix = page.get_pixmap(matrix=mat)
-                    
-                    # 将pixmap转换为PIL Image
-                    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-                    
+            
+            # 将pixmap转换为PIL Image
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            
                     # 保存图像到本地文件，以便直接使用文件路径而非base64
                     img_path = os.path.join(tempfile.gettempdir(), f"pdf_page_{page_num+1}.png")
                     img.save(img_path)
@@ -280,8 +280,8 @@ def get_pdf_images(pdf_file):
                 os.unlink(temp_path)
             except:
                 pass
-                
-            return images
+        
+        return images
         except Exception as e:
             logger.error(f"打开PDF文件失败: {e}")
             # 清理临时文件
@@ -437,7 +437,7 @@ def create_interface():
                 # 按钮放在Tabs外面，这样不会挡住内容
                 with gr.Column(elem_classes="button-area"):
                     download_btn = gr.Button("下载Markdown文件", variant="primary", size="lg")
-                    markdown_file = gr.File(label="下载文件")
+                markdown_file = gr.File(label="下载文件")
         
         # 处理PDF上传
         pdf_file.upload(
@@ -511,9 +511,9 @@ def create_interface():
         def create_markdown_file(markdown_content):
             if markdown_content:
                 try:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".md") as temp_file:
-                        temp_file.write(markdown_content.encode('utf-8'))
-                        return temp_file.name
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".md") as temp_file:
+                    temp_file.write(markdown_content.encode('utf-8'))
+                    return temp_file.name
                 except Exception as e:
                     logger.error(f"创建Markdown下载文件失败: {e}")
             return None

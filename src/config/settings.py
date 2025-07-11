@@ -82,6 +82,10 @@ class OCRProcessorConfig:
     use_gpu: bool = True
     det_db_thresh: float = 0.3
     det_db_box_thresh: float = 0.6
+    ocr_version: str = "PP-OCRv3"  # OCR模型版本
+    merge_threshold: float = 0.5  # 文本合并阈值
+    method: str = "paddleocr"  # OCR方法
+    min_table_size: int = 100  # 最小表格尺寸
     
 
 @dataclass
@@ -103,8 +107,15 @@ class FormulaParserConfig:
     model_size: str = "L"          # S, M, L 三个版本
     confidence_threshold: float = 0.7
     max_formula_width: int = 1000
-    max_formula_height: int = 200
+    max_formula_height: int = 500
     enable_latex_validation: bool = True
+    # LLM相关配置
+    use_llm: bool = False  # 是否使用LLM解析公式
+    llm_priority: bool = False  # 是否优先使用LLM（如果为True，会在其他方法之前先尝试LLM）
+    llm_fallback: bool = True  # 当其他方法失败时是否使用LLM作为后备
+    llm_api_key: Optional[str] = None  # LLM API密钥
+    llm_max_retries: int = 3  # 失败时最大重试次数
+    llm_timeout: int = 30  # API调用超时时间（秒）
     
 
 @dataclass

@@ -5,6 +5,13 @@ formula_parser:
   max_formula_height: 500
   max_formula_width: 1000
   model_size: L
+  # 大模型配置
+  use_llm: false                   # 是否使用大模型解析公式
+  llm_priority: false              # 是否优先使用大模型（设为false表示传统方法优先）
+  llm_fallback: false              # 当传统方法失败时是否使用大模型作为后备
+  llm_api_key: "sk-576e3801be4b445eb944b3dd79fa6f9c"  # 大模型API密钥
+  llm_max_retries: 3              # 失败时最大重试次数
+  llm_timeout: 30                 # API调用超时时间（秒）
 
 ocr_processor:
   confidence_threshold: 0.8
@@ -76,4 +83,4 @@ table_parser:
   use_llm: true                   # 是否使用大模型解析表格
   llm_priority: true              # 是否优先使用大模型（设为true表示优先使用大模型）
   llm_fallback: true              # 当传统方法失败时是否使用大模型作为后备
-  llm_api_key: null               # 大模型API密钥，null表示使用默认密钥
+  llm_api_key: "sk-576e3801be4b445eb944b3dd79fa6f9c"  # 大模型API密钥

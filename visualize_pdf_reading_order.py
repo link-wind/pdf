@@ -54,14 +54,14 @@ def process_pdf(pdf_path: str, output_dir: str, verbose: bool = False) -> None:
     output_path = Path(output_dir)
     output_path.mkdir(exist_ok=True, parents=True)
     
-    try:
-        # 1. 加载配置
-        logger.info(f"加载配置...")
-        config = load_config()
-        
+        try:
+            # 1. 加载配置
+            logger.info(f"加载配置...")
+            config = load_config()
+            
         # 2. 单独初始化必要的组件，以便可以直接访问内部对象
         logger.info(f"初始化组件...")
-        pdf_converter = PDFConverter(config.pdf_converter)
+            pdf_converter = PDFConverter(config.pdf_converter)
         layout_analyzer = LayoutAnalyzer(config.layout_analyzer)
         reading_order_analyzer = ReadingOrderAnalyzer(config.reading_order)
         
@@ -137,7 +137,7 @@ def process_pdf(pdf_path: str, output_dir: str, verbose: bool = False) -> None:
                             height=height
                         )
                         logger.info(f"成功创建页面 {i+1}")
-                        
+            
                         # 将页面添加到列表
                         pages.append(page)
                     except Exception as e:
@@ -233,7 +233,7 @@ def process_pdf(pdf_path: str, output_dir: str, verbose: bool = False) -> None:
             # 再次检查文档页数
             if hasattr(document, 'pages'):
                 logger.info(f"阅读顺序分析后的文档包含 {len(document.pages)} 页")
-        
+            
         # 7. 初始化可视化器
         visualizer = ReadingOrderVisualizer(output_dir)
         
@@ -284,22 +284,22 @@ def process_pdf(pdf_path: str, output_dir: str, verbose: bool = False) -> None:
                 
                 # 可视化结果
                 try:
-                    output_img_path = visualizer.visualize_page_reading_order(
+                output_img_path = visualizer.visualize_page_reading_order(
                         img_path, 
                         regions, 
                         actual_page_num, 
                         title=f"页面 {actual_page_num+1} 阅读顺序和版式分析 (使用与Markdown相同顺序)"
-                    )
+                )
                     logger.info(f"页面 {actual_page_num+1} 可视化完成，输出: {output_img_path}")
                 except Exception as e:
                     logger.error(f"可视化页面 {actual_page_num+1} 时出错: {e}")
             
             # 9. 生成HTML报告
             try:
-                logger.info("生成HTML报告...")
-                report_path = visualizer.create_reading_order_report(
-                    document=document,
-                    temp_dir=temp_dir,
+            logger.info("生成HTML报告...")
+            report_path = visualizer.create_reading_order_report(
+                document=document,
+                temp_dir=temp_dir,
                     algorithm_info={"name": "PDF处理管道", "description": "使用与Markdown生成相同的处理逻辑"}
                 )
                 logger.info(f"报告生成完成: {report_path}")
@@ -315,11 +315,11 @@ def process_pdf(pdf_path: str, output_dir: str, verbose: bool = False) -> None:
                 except Exception as e:
                     logger.warning(f"删除临时文件失败: {page.image_path}, 错误: {e}")
             
-    except Exception as e:
-        logger.error(f"处理失败: {e}")
-        if verbose:
-            import traceback
-            traceback.print_exc()
+        except Exception as e:
+            logger.error(f"处理失败: {e}")
+            if verbose:
+                import traceback
+                traceback.print_exc()
 
 
 def main():
