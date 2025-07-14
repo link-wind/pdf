@@ -90,7 +90,13 @@ class Pix2TextProcessorConfig:
         'languages': ('en', 'ch_sim'),
         # ONNX Runtime配置 - 禁用TensorRT
         'onnx_providers': ['CUDAExecutionProvider', 'CPUExecutionProvider'],
-        'disable_tensorrt': True
+        'disable_tensorrt': True,
+        # 文本识别配置
+        'text': {
+            'rec_model_name': 'doc-densenet_lite_666-gru_large',
+            'rec_model_backend': 'onnx',
+            'rec_model_fp': '~/.pix2text/1.1/text-recognition/doc-densenet_lite_666-gru_large.onnx'
+        }
     })
     
     def to_total_configs(self) -> Dict[str, Any]:

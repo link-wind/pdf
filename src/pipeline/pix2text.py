@@ -93,7 +93,7 @@ class Pix2TextProcessor:
                         if not hasattr(self, 'text_formula'):
                             import os
                             self.text_formula = {
-                                'languages': ('en'),
+                                'languages': ('en', 'ch_sim'),
                             }
                     
                     def to_total_configs(self):
@@ -183,6 +183,11 @@ class Pix2TextProcessor:
             if 'text_formula' in total_configs:
                 text_formula_config = total_configs['text_formula']
                 
+                # 扩展模型路径（支持 ~ 符号）
+                import os
+                if 'text' in text_formula_config and 'rec_model_fp' in text_formula_config['text']:
+                    text_formula_config['text']['rec_model_fp'] = os.path.expanduser(text_formula_config['text']['rec_model_fp'])
+                
                 # 如果配置中指定了ONNX提供程序，则应用
                 if 'onnx_providers' in text_formula_config:
                     providers = text_formula_config['onnx_providers']
@@ -193,16 +198,10 @@ class Pix2TextProcessor:
                     os.environ['ORT_TENSORRT_UNAVAILABLE'] = '1'  # 禁用TensorRT
                     
                     # 将providers配置传递给text_formula
-                    if 'mfd' not in text_formula_config:
-                        text_formula_config['mfd'] = {}
-                    if 'formula' not in text_formula_config:
-                        text_formula_config['formula'] = {}
                     if 'text' not in text_formula_config:
                         text_formula_config['text'] = {}
                     
-                    # 为各个组件设置ONNX providers
-                    text_formula_config['mfd']['onnx_providers'] = providers
-                    text_formula_config['formula']['onnx_providers'] = providers
+                    # 为text组件设置ONNX providers
                     text_formula_config['text']['onnx_providers'] = providers
                 
                 # 如果明确禁用TensorRT
@@ -211,6 +210,9 @@ class Pix2TextProcessor:
                     os.environ['ORT_TENSORRT_UNAVAILABLE'] = '1'
                     logger.info("已禁用TensorRT执行提供程序")
 
+            # 添加调试信息
+            logger.info(f"Pix2Text配置: {total_configs}")
+            
             self.p2t_engine = Pix2Text.from_config(total_configs=total_configs)
 
             logger.info(f"Pix2Text引擎已初始化: 设备={self.device}")

@@ -280,7 +280,7 @@ class OCRProcessor:
             scale_factor_x, scale_factor_y = self._get_scale_factors(region_width, region_height, region_type)
             
             # 使用固定值进行扩展
-            fixed_expansion_x = 50  # 固定扩展像素值
+            fixed_expansion_x = 60  # 固定扩展像素值
             fixed_expansion_y = 30  # 固定扩展像素值
             padding_x = scale_factor_x * fixed_expansion_x
             padding_y = scale_factor_y * fixed_expansion_y
@@ -316,7 +316,7 @@ class OCRProcessor:
         # 根据区域类型设置扩展系数
         if region_type == 'title':
             # 标题：水平扩展更多，垂直适中
-            base_x, base_y = 2.0, 1.5
+            base_x, base_y = 2.0, 1.6
         else:
             # 默认：均匀扩展
             base_x, base_y = 1.4, 1.2

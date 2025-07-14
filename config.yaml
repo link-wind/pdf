@@ -20,11 +20,19 @@ pix2text_processor:
   text_formula:
     languages:
       - en
+      - ch_sim
+    
     # ONNX Runtime配置 - 禁用TensorRT
     onnx_providers:
       - CUDAExecutionProvider
       - CPUExecutionProvider
-    disable_tensorrt: true
+    disable_tensorrt: false
+    
+    # 文本识别配置
+    text:
+      rec_model_name: "doc-densenet_lite_136-gru"
+      rec_model_backend: "pytorch"
+      rec_model_fp: "C:\\Users\\28601\\AppData\\Roaming\\cnocr\\2.3\\doc-densenet_lite_136-gru"
 
 ocr_processor:
   confidence_threshold: 0.8
