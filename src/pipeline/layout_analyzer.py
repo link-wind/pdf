@@ -23,69 +23,7 @@ except ImportError:
     logger.error("doclayout_yolo not installed. Please install: pip install doclayout_yolo")
     YOLOv10 = None
 
-try:
-    from ..models.document import Region, RegionType, BoundingBox, TableRegion, FormulaRegion, ImageRegion, TextRegion
-except ImportError:
-    # 如果相对导入失败，尝试绝对导入
-    try:
-        from src.models.document import Region, RegionType, BoundingBox, TableRegion, FormulaRegion, ImageRegion, TextRegion
-    except ImportError:
-        # 如果还是失败，创建简单的替代类
-        from typing import NamedTuple
-        from enum import Enum
-        
-        class RegionType(Enum):
-            TEXT = "Text"
-            TITLE = "Title"
-            LIST = "List"
-            TABLE = "Table"
-            FIGURE = "Figure"
-            CAPTION = "Caption"
-            FORMULA = "Formula"
-            HEADER = "Header"
-            FOOTER = "Footer"
-        
-        class BoundingBox(NamedTuple):
-            x1: int
-            y1: int
-            x2: int
-            y2: int
-            
-            @property
-            def width(self):
-                return self.x2 - self.x1
-                
-            @property
-            def height(self):
-                return self.y2 - self.y1
-        
-        class Region:
-            def __init__(self, region_id: str, region_type: RegionType, bbox: BoundingBox, confidence: float = 1.0):
-                self.region_id = region_id
-                self.region_type = region_type
-                self.bbox = bbox
-                self.confidence = confidence
-        
-        # 简单的替代类
-        class TableRegion(Region):
-            def __init__(self, **kwargs):
-                super().__init__(**kwargs)
-                self.table_content = []
-                
-        class FormulaRegion(Region):
-            def __init__(self, **kwargs):
-                super().__init__(**kwargs)
-                self.formula_content = []
-                
-        class ImageRegion(Region):
-            def __init__(self, **kwargs):
-                super().__init__(**kwargs)
-                self.image_content = []
-                
-        class TextRegion(Region):
-            def __init__(self, **kwargs):
-                super().__init__(**kwargs)
-                self.text_content = []
+from ..models.document import Region, RegionType, BoundingBox, TableRegion, FormulaRegion, ImageRegion, TextRegion
 
 
 @dataclass
@@ -251,7 +189,11 @@ class LayoutAnalyzer:
                     logger.debug(f"检测到元素: {label} (置信度: {conf:.3f})")
                     
                     # 映射到RegionType
-                    region_type = self._map_to_region_type(label)
+                    try:
+                        region_type = RegionType(label)
+                    except ValueError:
+                        logger.warning(f"未知的区域类型: {label}，将使用 PLAINTEXT")
+                        region_type = RegionType.PLAINTEXT
                     
                     # 跳过需要舍弃的内容
                     if region_type is None:
@@ -264,16 +206,16 @@ class LayoutAnalyzer:
                     
                     # 根据区域类型决定是否创建占位符内容
                     content = ""
-                    if region_type in [RegionType.FIGURE, RegionType.CAPTION]:
-                        # 图片和标题区域不生成占位符内容
+                    if region_type in [RegionType.FIGURE]:
+                        # 图片区域不生成占位符内容
                         content = ""
-                    elif region_type == RegionType.TEXT:
+                    elif region_type == RegionType.PLAINTEXT:
                         # 文本区域将通过OCR填充内容
                         content = ""
                     elif region_type == RegionType.TABLE:
                         # 表格区域将通过表格解析器填充内容
                         content = ""
-                    elif region_type == RegionType.FORMULA:
+                    elif region_type == RegionType.ISOLATE_FORMULA:
                         # 公式区域将通过公式解析器填充内容
                         content = ""
                     elif region_type == RegionType.TITLE:
@@ -301,7 +243,7 @@ class LayoutAnalyzer:
                             table_content=[],  # 初始化为空列表
                             **common_params
                         )
-                    elif region_type == RegionType.FORMULA:
+                    elif region_type == RegionType.ISOLATE_FORMULA:
                         # 创建公式区域
                         region = FormulaRegion(
                             region_type=region_type,
@@ -315,7 +257,7 @@ class LayoutAnalyzer:
                             image_content=[],  # 初始化为空列表
                             **common_params
                         )
-                    elif region_type == RegionType.TEXT or region_type == RegionType.TITLE:
+                    elif region_type in [RegionType.PLAINTEXT, RegionType.TITLE, RegionType.FIGURE_CAPTION, RegionType.TABLE_CAPTION, RegionType.FORMULA_CAPTION]:
                         # 创建文本区域
                         region = TextRegion(
                             region_type=region_type,
@@ -341,29 +283,7 @@ class LayoutAnalyzer:
             logger.error(traceback.format_exc())
             return []
     
-    def _map_to_region_type(self, label: str) -> RegionType:
-        """将类别标签映射到RegionType
-        
-        Args:
-            label: 类别标签
-            
-        Returns:
-            RegionType: 区域类型
-        """
-        mapping = {
-            'Title': RegionType.TITLE,              # 0: 标题
-            'PlainText': RegionType.TEXT,           # 1: 普通文本
-            'Abandon': None,                        # 2: 页眉页脚等舍弃内容 - 跳过
-            'Figure': RegionType.FIGURE,            # 3: 图片 - 保留用于阅读顺序分析
-            'FigureCaption': RegionType.CAPTION,    # 4: 图片标题 - 保留用于阅读顺序分析
-            'Table': RegionType.TABLE,              # 5: 表格
-            'TableCaption': RegionType.CAPTION,     # 6: 表格标题
-            'TableFootnote': RegionType.TEXT,       # 7: 表格脚注 - 保留用于阅读顺序分析
-            'IsolateFormula': RegionType.FORMULA,   # 8: 行间公式
-            'FormulaCaption': RegionType.CAPTION    # 9: 公式标号 - 保留用于阅读顺序分析
-        }
-        
-        return mapping.get(label, RegionType.TEXT)
+
     
     def get_model_info(self) -> Dict[str, Any]:
         """获取模型信息

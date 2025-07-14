@@ -144,7 +144,7 @@ def validate_input(args):
     
     if args.batch:
         # 批量处理模式
-        input_dir = Path("data/input/supplement")
+        input_dir = Path("data/input/samples")
         if not input_dir.exists():
             logger.error(f"批量处理输入目录不存在: {input_dir}")
             return False
@@ -285,7 +285,7 @@ def process_batch(args):
         config = load_config(args.config)
         
         # 获取所有PDF文件
-        input_dir = Path("data/input/supplement")
+        input_dir = Path("data/input/samples")
         pdf_files = list(input_dir.glob("*.pdf"))
         
         logger.info(f"找到 {len(pdf_files)} 个PDF文件")

@@ -37,7 +37,7 @@ except ImportError:
         from enum import Enum
         
         class RegionType(Enum):
-            TEXT = "Text"
+            PLAINTEXT = "PlainText"
             TITLE = "Title"
             LIST = "List"
             TABLE = "Table"
@@ -49,7 +49,7 @@ except ImportError:
         
         class Region:
             def __init__(self, **kwargs):
-                self.region_type = kwargs.get('region_type', RegionType.TEXT)
+                self.region_type = kwargs.get('region_type', RegionType.PLAINTEXT)
                 self.bbox = kwargs.get('bbox')
                 self.metadata = kwargs.get('metadata')
                 for k, v in kwargs.items():
@@ -429,7 +429,7 @@ class ReadingOrderAnalyzer:
     def _get_page_regions(self, page: Page) -> List[Region]:
         """获取页面的所有区域，除了Abandon类型的区域
         
-        现在所有非Abandon的区域都会在layout_analyzer中被创建，包括Figure、Caption等，
+        现在所有非Abandon的区域都会在layout_analyzer中被创建，包括Figure、FigureCaption等，
         因此这里直接返回所有区域即可。
         """
         regions = []

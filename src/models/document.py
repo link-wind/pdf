@@ -19,19 +19,16 @@ class DocumentType(Enum):
 
 class RegionType(Enum):
     """区域类型枚举"""
-    TEXT = "Text"
-    TITLE = "Title"
-    TABLE = "Table"
-    FORMULA = "Formula"
-    EQUATION = "Equation"
-    IMAGE = "Image"
-    FIGURE = "Figure"
-    HEADER = "Header"
-    FOOTER = "Footer"
-    CAPTION = "Caption"
-    TABLE_CAPTION = "Table caption"
-    FIGURE_CAPTION = "Figure caption"
-    FOOTNOTE = "Footnote"
+    TITLE = 'Title'              # 0: 标题
+    PLAINTEXT = 'PlainText'      # 1: 普通文本
+    ABANDON = 'Abandon'          # 2: 页眉页脚等舍弃内容
+    FIGURE = 'Figure'            # 3: 图片
+    FIGURE_CAPTION = 'FigureCaption' # 4: 图片标题
+    TABLE = 'Table'              # 5: 表格
+    TABLE_CAPTION = 'TableCaption' # 6: 表格标题
+    TABLE_FOOTNOTE = 'TableFootnote' # 7: 表格脚注
+    ISOLATE_FORMULA = 'IsolateFormula' # 8: 行间公式
+    FORMULA_CAPTION = 'FormulaCaption'  # 9: 公式标号
 
 
 class DocumentLayoutType(Enum):
@@ -46,22 +43,7 @@ class DocumentLayoutType(Enum):
     LIST = "List"
     TOC = "Toc"
     
-    # 教材场景特有类型
-    CATALOGUE = "Catalogue"
-    FOOTNOTE = "Footnote"
-    CHAPTER_TITLE = "Chapter title"
-    SUBSECTION_TITLE = "Subsection title"
-    SECTION_TITLE = "Section title"
-    SUBHEAD = "Subhead"
-    PARAGRAPH = "Paragraph"
-    UNORDERED_LIST = "Unordered list"
-    ORDERED_LIST = "Ordered list"
-    CODE = "Code"
-    CODE_CAPTION = "Code caption"
-    PAGE_NUMBER = "Page number"
-    INDEX = "Index"
-    HEADLINE = "Headline"
-    OTHER_TITLE = "Other title"
+
     
     @property
     def value(self) -> str:
@@ -180,9 +162,9 @@ class TextRegion(Region):
     text_content: List[TextData] = field(default_factory=list)
     
     def __post_init__(self):
-        # 只有当region_type为None或未指定时，才设置为TEXT
+        # 只有当region_type为None或未指定时，才设置为PLAINTEXT
         if not hasattr(self, 'region_type') or self.region_type is None:
-            self.region_type = RegionType.TEXT
+            self.region_type = RegionType.PLAINTEXT
 
 
 @dataclass
@@ -212,7 +194,7 @@ class FormulaRegion(Region):
     page_path: Optional[str] = None
     
     def __post_init__(self):
-        self.region_type = RegionType.FORMULA
+        self.region_type = RegionType.ISOLATE_FORMULA
 
 
 @dataclass
@@ -221,7 +203,7 @@ class ImageRegion(Region):
     image_content: Optional[List[ImageData]] = None
     
     def __post_init__(self):
-        self.region_type = RegionType.IMAGE
+        self.region_type = RegionType.FIGURE
 
 
 @dataclass
@@ -280,13 +262,13 @@ class PageLayout:
         else:
             # 默认添加到文本区域
             if hasattr(region, 'region_type'):
-                if region.region_type == RegionType.TEXT:
+                if region.region_type == RegionType.PLAINTEXT:
                     self.text_regions.append(region)
                 elif region.region_type == RegionType.TABLE:
                     self.table_regions.append(region)
-                elif region.region_type == RegionType.FORMULA:
+                elif region.region_type == RegionType.ISOLATE_FORMULA:
                     self.formula_regions.append(region)
-                elif region.region_type == RegionType.IMAGE:
+                elif region.region_type == RegionType.FIGURE:
                     self.image_regions.append(region)
                 else:
                     self.text_regions.append(region)

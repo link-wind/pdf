@@ -21,6 +21,7 @@ from ..models.document import Document, Page, Region, PageLayout, BoundingBox, R
 from .pdf_converter import PDFConverter
 from .layout_analyzer import LayoutAnalyzer
 from .ocr_processor import OCRProcessor
+from .pix2text import Pix2TextProcessor  # 导入新的处理器
 from .table_parser import TableParser
 from .formula_parser import FormulaParser
 from .reading_order import ReadingOrderAnalyzer
@@ -59,6 +60,10 @@ class PDFPipeline:
             # 可选处理器
             if getattr(self.settings.ocr_processor, 'enabled', True):
                 self.processors['ocr_processor'] = OCRProcessor(self.settings.ocr_processor)
+            
+            # 初始化Pix2Text处理器，专门用于纯文本
+            if getattr(self.settings, 'pix2text_processor', None) and getattr(self.settings.pix2text_processor, 'enabled', True):
+                self.processors['pix2text_processor'] = Pix2TextProcessor(self.settings.pix2text_processor)
             
             if getattr(self.settings.table_parser, 'enabled', True):
                 self.processors['table_parser'] = TableParser(self.settings.table_parser)
@@ -152,10 +157,19 @@ class PDFPipeline:
                 
                 for region in page.regions:
                     try:
-                        # OCR处理
-                        if ('ocr_processor' in self.processors and 
-                            region.region_type in [RegionType.TEXT, RegionType.TITLE, RegionType.HEADER, RegionType.FOOTER]):
-                            logger.debug(f"OCR处理区域: {region.region_type.value}")
+                        # 根据区域类型选择不同的处理器
+                        if region.region_type == RegionType.PLAINTEXT and 'pix2text_processor' in self.processors:
+                            logger.debug(f"使用Pix2Text处理区域: {region.region_type.value}")
+                            processor_name = 'pix2text_processor'
+                            processor = self.processors[processor_name]
+                        elif region.region_type in [RegionType.TITLE, RegionType.FIGURE_CAPTION, RegionType.TABLE_CAPTION] and 'ocr_processor' in self.processors:
+                            logger.debug(f"使用OCR处理区域: {region.region_type.value}")
+                            processor_name = 'ocr_processor'
+                            processor = self.processors[processor_name]
+                        else:
+                            processor = None
+
+                        if processor:
                             # 创建TextRegion对象
                             from ..models.document import TextRegion
                             text_region = TextRegion(
@@ -165,35 +179,43 @@ class PDFPipeline:
                                 page_number=region.page_number,
                                 reading_order=region.reading_order
                             )
-                            # 加载页面图像
+                            # 加载页面图像并处理
                             with Image.open(page.image_path) as page_img:
                                 if page_img.mode != 'RGB':
                                     page_img = page_img.convert('RGB')
-                                # 调用处理器
+                                image_array = np.array(page_img)
+                                
                                 try:
-                                    # 转换PIL图像为numpy数组
-                                    image_array = np.array(page_img)
-                                    result = self.processors['ocr_processor'].process_region(text_region, image_array)
+                                    # 调用选择的处理器
+                                    result = processor.process_region(text_region, image_array)
                                     
-                                    # 检查OCR结果
-                                    if result and result.get('content') and len(result['content'].strip()) > 0:
-                                        # 将OCR结果正确存储到TextRegion中
-                                        text_region.text_content = result.get('text_blocks', [])
-                                        # 同时为兼容性设置基类的content字段
-                                        text_region.content = result.get('content', '')
-                                        text_region.confidence = result.get('confidence', region.confidence)
-                                        # 用更新后的TextRegion替换原region
-                                        page.regions[page.regions.index(region)] = text_region
-                                        logger.debug(f"OCR识别成功: {result['content'][:50]}...")
+                                    # 根据返回类型处理结果
+                                    if isinstance(result, str):
+                                        content = result
+                                        text_blocks = [] # Pix2Text简化后不返回blocks
+                                        confidence = region.confidence # 保持原置信度
+                                    elif isinstance(result, dict):
+                                        content = result.get('content', '')
+                                        text_blocks = result.get('text_blocks', [])
+                                        confidence = result.get('confidence', region.confidence)
                                     else:
-                                        logger.warning(f"OCR未识别到文本内容，跳过区域")
+                                        content = ""
+                                        text_blocks = []
+                                        confidence = 0.0
+
+                                    if content and content.strip():
+                                        text_region.content = content
+                                        text_region.text_content = text_blocks
+                                        text_region.confidence = confidence
+                                        page.regions[page.regions.index(region)] = text_region
+                                        logger.debug(f"{processor_name} 识别成功: {content[:50]}...")
+                                    else:
+                                        logger.warning(f"{processor_name} 未识别到文本内容，跳过区域")
                                         text_region.content = ""
-                                        text_region.text_content = []
                                         page.regions[page.regions.index(region)] = text_region
                                 except Exception as e:
-                                    logger.warning(f"OCR处理失败: {e}")
+                                    logger.warning(f"{processor_name} 处理失败: {e}")
                                     text_region.content = ""
-                                    text_region.text_content = []
                                     page.regions[page.regions.index(region)] = text_region
                         
                         # 表格解析
@@ -271,7 +293,7 @@ class PDFPipeline:
                         
                         # 公式识别
                         elif ('formula_parser' in self.processors and 
-                              region.region_type in [RegionType.EQUATION, RegionType.FORMULA]):
+                              region.region_type in [RegionType.ISOLATE_FORMULA]):
                             logger.debug("公式识别处理...")
                             # 创建FormulaRegion对象
                             from ..models.document import FormulaRegion
@@ -432,18 +454,12 @@ class PDFPipeline:
             logger.info(f"PDF处理完成，耗时: {processing_time:.2f}秒")
             logger.info(f"总页数: {document.metadata['total_pages']}")
             logger.info(f"总区域数: {document.metadata['total_regions']}")
-            
+               
             # 返回兼容Gradio前端的结果字典
             return {
                 'success': True,
                 'document': document,
                 'markdown_content': document.markdown_content,
-                'statistics': {
-                    'processing_time': processing_time,
-                    'total_pages': document.metadata['total_pages'],
-                    'total_regions': document.metadata['total_regions'],
-                    'model_type': document.metadata['model_type']
-                },
                 'output_path': str(output_path)
             }
             
@@ -522,4 +538,4 @@ class PDFPipeline:
             
         except Exception as e:
             logger.error(f"表格转换为Markdown失败: {e}")
-            return "" 
+            return ""

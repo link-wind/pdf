@@ -67,7 +67,7 @@ class FormulaParser:
             from paddlex import create_model
             
             # 使用默认的Large版本
-            model_name = "PP-FormulaNet-L"
+            model_name = "PP-FormulaNet_plus-S"
             
             # 创建模型
             self.formula_model = create_model(model_name=model_name)
@@ -491,7 +491,7 @@ class FormulaParser:
     def get_model_info(self) -> Dict[str, Any]:
         """获取模型信息"""
         return {
-            'name': 'PP-FormulaNet-L',
+            'name': 'PP-FormulaNet_plus-S',
             'framework': 'PaddleX',
             'task': 'Formula Recognition',
             'model_loaded': self.formula_model is not None

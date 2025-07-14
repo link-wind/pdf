@@ -85,12 +85,14 @@ class OCRProcessor:
             # 使用最新的PaddleOCR配置参数
             self.ocr_engine = PaddleOCR(
                 lang=self.language,
-                det_db_thresh=self.det_db_thresh,
-                det_db_box_thresh=self.det_db_box_thresh,
+                text_detection_model_name="PP-OCRv5_mobile_rec",
+                text_recognition_model_name="PP-OCRv5_mobile_rec",
+                text_det_limit_side_len=20,
+                text_det_limit_type= 'min',
                 ocr_version=self.ocr_version,
                 device="gpu" if self.use_gpu else "cpu",
                 use_doc_orientation_classify=False,  # 不使用文档方向分类模型
-                use_doc_unwarping=False,  # 不使用文本图像矫正模型
+                use_doc_unwarping=True,  # 不使用文本图像矫正模型
                 use_textline_orientation=False,  # 不使用文本行方向分类模型
             )
             
@@ -110,15 +112,29 @@ class OCRProcessor:
             # 如果是PIL Image，转换为numpy数组
             if hasattr(image, 'mode'):
                 image = np.array(image)
+
+            # 获取区域类型和尺寸信息
+            region_type = getattr(region, 'region_type', 'Unknown')
             
-            # 裁剪区域
-            cropped_image = self._crop_region(image, region.bbox)
+            # 裁剪区域，传递区域类型
+            cropped_image = self._crop_region(image, region.bbox, region_type)
+            
+            h, w = cropped_image.shape[:2]
+            logger.debug(f"处理{region_type}区域，尺寸: {w}x{h}")
+            
             
             # 进行OCR识别
             result = self.ocr_engine.predict(cropped_image)
+            logger.debug(f"OCR原始结果类型: {type(result)}, 长度: {len(result) if result else 0}")
             
             # 解析结果
-            text_content, text_blocks = self._parse_result(result, region.bbox)
+            text_content, text_blocks = self._parse_result(result, region.bbox, region_type)
+            
+            # 输出详细信息
+            if text_content:
+                logger.debug(f"{region_type}区域识别成功: {text_content[:100]}...")
+            else:
+                logger.debug(f"{region_type}区域未识别到文本")
             
             return {
                 'content': text_content,
@@ -130,22 +146,8 @@ class OCRProcessor:
             logger.error(f"OCR处理失败: {e}")
             return {'content': '', 'text_blocks': []}
     
-    def _crop_region(self, image: np.ndarray, bbox: BoundingBox) -> np.ndarray:
-        """裁剪图像区域"""
-        try:
-            h, w = image.shape[:2]
-            x1 = max(0, min(bbox.x1, w-1))
-            y1 = max(0, min(bbox.y1, h-1))
-            x2 = max(x1+1, min(bbox.x2, w))
-            y2 = max(y1+1, min(bbox.y2, h))
-            
-            return image[y1:y2, x1:x2]
-            
-        except Exception as e:
-            logger.error(f"图像裁剪失败: {e}")
-            return image
     
-    def _parse_result(self, result: List, region_bbox=None) -> Tuple[str, List[TextElement]]:
+    def _parse_result(self, result: List, region_bbox=None, region_type="Unknown") -> Tuple[str, List[TextElement]]:
         """解析OCR结果"""
         text_lines = []
         text_blocks = []
@@ -153,12 +155,20 @@ class OCRProcessor:
         try:
             # 处理新版API结果格式
             if isinstance(result, list) and len(result) > 0 and isinstance(result[0], dict):
-                for item in result:
-                    if 'rec_texts' in item and 'rec_scores' in item:
-                        for i, (text, score, poly) in enumerate(zip(item['rec_texts'], 
-                                                                   item['rec_scores'], 
-                                                                   item['rec_polys'])):
-                            if score >= self.confidence_threshold and text.strip():
+                
+                for item_idx, item in enumerate(result):
+                    if 'rec_texts' in item and 'rec_scores' in item and 'rec_polys' in item:
+                        rec_texts = item['rec_texts']
+                        rec_scores = item['rec_scores']
+                        rec_polys = item['rec_polys']
+                        
+                        for i, (text, score, poly) in enumerate(zip(rec_texts, rec_scores, rec_polys)):
+                            # 动态调整置信度阈值
+                            threshold = self.confidence_threshold
+                            if region_type == "Title":
+                                threshold = max(0.5, self.confidence_threshold - 0.3)  # 降低30%
+                            
+                            if score >= threshold and text.strip():
                                 text_lines.append(text)
                                 
                                 # 计算边界框
@@ -185,13 +195,19 @@ class OCRProcessor:
             
             # 处理旧版API结果格式
             elif result and isinstance(result, list) and len(result) > 0 and isinstance(result[0], list):
+                
                 for line in result[0]:
                     if len(line) >= 2 and len(line[1]) >= 2:
                         box_coords = line[0]
                         text = line[1][0]
                         confidence = line[1][1]
                         
-                        if confidence >= self.confidence_threshold and text.strip():
+                        # 动态调整置信度阈值
+                        threshold = self.confidence_threshold
+                        if region_type == "Title":
+                            threshold = max(0.5, self.confidence_threshold - 0.1)
+                        
+                        if confidence >= threshold and text.strip():
                             text_lines.append(text)
                             
                             # 计算边界框
@@ -215,8 +231,13 @@ class OCRProcessor:
                                 bbox=BoundingBox(x1, y1, x2, y2),
                                 confidence=confidence
                             ))
+            else:
+                logger.warning(f"未知的OCR结果格式: {type(result)}")
             
             content = '\n'.join(text_lines)
+            if len(text_lines) > 0:
+                logger.info(f"{region_type}区域解析完成: {len(text_lines)} 行文本")
+            
             return content, text_blocks
             
         except Exception as e:
@@ -246,6 +267,62 @@ class OCRProcessor:
             logger.error(f"计算置信度失败: {e}")
             return 0.0
     
+    def _crop_region(self, image: np.ndarray, bbox: BoundingBox, region_type: str = None) -> np.ndarray:
+        """裁剪图像区域，根据区域类型使用固定值扩展"""
+        try:
+            h, w = image.shape[:2]
+            
+            # 计算原始区域的宽高
+            region_width = bbox.x2 - bbox.x1
+            region_height = bbox.y2 - bbox.y1
+            
+            # 根据区域类型和尺寸特征确定扩展比例
+            scale_factor_x, scale_factor_y = self._get_scale_factors(region_width, region_height, region_type)
+            
+            # 使用固定值进行扩展
+            fixed_expansion_x = 50  # 固定扩展像素值
+            fixed_expansion_y = 30  # 固定扩展像素值
+            padding_x = scale_factor_x * fixed_expansion_x
+            padding_y = scale_factor_y * fixed_expansion_y
+            
+            # 计算扩展后的坐标
+            x1 = max(0, int(bbox.x1 - padding_x))
+            y1 = max(0, int(bbox.y1 - padding_y))
+            x2 = min(w, int(bbox.x2 + padding_x))
+            y2 = min(h, int(bbox.y2 + padding_y))
+            
+            # 确保坐标有效
+            x1 = max(0, min(x1, w-1))
+            y1 = max(0, min(y1, h-1))
+            x2 = max(x1+1, min(x2, w))
+            y2 = max(y1+1, min(y2, h))
+            
+            cropped = image[y1:y2, x1:x2]
+            
+            # 确保裁剪区域不为空
+            if cropped.size == 0:
+                logger.warning(f"裁剪区域为空: {bbox}")
+                return image
+            
+            return cropped
+            
+        except Exception as e:
+            logger.error(f"裁剪区域失败: {e}")
+            return image
+    
+    def _get_scale_factors(self, width: float, height: float, region_type: str = None) -> tuple[float, float]:
+        """根据区域特征确定扩展比例系数"""
+        
+        # 根据区域类型设置扩展系数
+        if region_type == 'title':
+            # 标题：水平扩展更多，垂直适中
+            base_x, base_y = 2.0, 1.5
+        else:
+            # 默认：均匀扩展
+            base_x, base_y = 1.4, 1.2
+        
+        return base_x, base_y
+    
     def process_image(self, image_path: str) -> Dict[str, Any]:
         """处理整张图像的OCR识别"""
         if self.ocr_engine is None:
@@ -263,7 +340,7 @@ class OCRProcessor:
             result = self.ocr_engine.predict(image)
             
             # 解析结果
-            text_content, text_blocks = self._parse_result(result)
+            text_content, text_blocks = self._parse_result(result, None, "FullImage")
             
             return {
                 'content': text_content,

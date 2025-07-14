@@ -7,6 +7,7 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 from dataclasses import dataclass, field
 import yaml
+import os
 
 try:
     from loguru import logger
@@ -74,24 +75,51 @@ class LayoutAnalyzerConfig:
     
 
 @dataclass
+class Pix2TextProcessorConfig:
+    """Pix2Text处理器配置 - 使用Pix2Text标准配置格式"""
+    enabled: bool = True
+    use_gpu: bool = True
+    device: str = 'cuda'  # cuda, cpu
+    
+    # Pix2Text标准配置格式
+    layout: Dict[str, Any] = field(default_factory=lambda: {
+        'scores_thresh': 0.45
+    })
+    
+    text_formula: Dict[str, Any] = field(default_factory=lambda: {
+        'languages': ('en', 'ch_sim'),
+        # ONNX Runtime配置 - 禁用TensorRT
+        'onnx_providers': ['CUDAExecutionProvider', 'CPUExecutionProvider'],
+        'disable_tensorrt': True
+    })
+    
+    def to_total_configs(self) -> Dict[str, Any]:
+        """转换为Pix2Text的total_configs格式"""
+        return {
+            'layout': self.layout,
+            'text_formula': self.text_formula
+        }
+
+
+@dataclass
 class OCRProcessorConfig:
     """OCR处理器配置"""
     engine: str = 'paddleocr'  # paddleocr, easyocr, tesseract
     language: str = 'ch'  # ch, en, ch_en
     confidence_threshold: float = 0.8
     use_gpu: bool = True
-    det_db_thresh: float = 0.3
-    det_db_box_thresh: float = 0.6
-    ocr_version: str = "PP-OCRv3"  # OCR模型版本
-    merge_threshold: float = 0.5  # 文本合并阈值
+    ocr_version: str = "PP-OCRv5"  # OCR模型版本
     method: str = "paddleocr"  # OCR方法
-    min_table_size: int = 100  # 最小表格尺寸
     
 
 @dataclass
 class TableParserConfig:
-    """表格解析器配置"""
+    """表格解析器配置 - 基于RapidTable"""
+    # RapidTable配置
+    engine: str = 'rapid_table'  # rapid_table
+    model_type: str = 'SLANETPLUS'  # SLANETPLUS, UNITABLE
     use_gpu: bool = True  # 是否使用GPU加速
+    gpu_id: int = 0  # GPU设备ID
     confidence_threshold: float = 0.8  # 置信度阈值
     # LLM相关配置
     use_llm: bool = False  # 是否使用LLM解析表格
@@ -157,12 +185,13 @@ class MarkdownGeneratorConfig:
     })
 
 
-@dataclass 
+@dataclass
 class Settings:
     """全局配置设置"""
     pdf_converter: PDFConverterConfig = field(default_factory=PDFConverterConfig)
     layout_analyzer: LayoutAnalyzerConfig = field(default_factory=LayoutAnalyzerConfig)
     ocr_processor: OCRProcessorConfig = field(default_factory=OCRProcessorConfig)
+    pix2text_processor: Pix2TextProcessorConfig = field(default_factory=Pix2TextProcessorConfig)  # 添加Pix2Text配置
     table_parser: TableParserConfig = field(default_factory=TableParserConfig)
     formula_parser: FormulaParserConfig = field(default_factory=FormulaParserConfig)
     reading_order: ReadingOrderConfig = field(default_factory=ReadingOrderConfig)
@@ -178,6 +207,7 @@ class Settings:
         self.pdf_converter = PDFConverterConfig()
         self.layout_analyzer = LayoutAnalyzerConfig()
         self.ocr_processor = OCRProcessorConfig()
+        self.pix2text_processor = Pix2TextProcessorConfig()
         self.table_parser = TableParserConfig()
         self.formula_parser = FormulaParserConfig()
         self.reading_order = ReadingOrderConfig()
@@ -272,6 +302,13 @@ class Settings:
                     config_data['reading_order']
                 )
             
+            # 更新Pix2Text处理器配置
+            if 'pix2text_processor' in config_data:
+                self._update_dataclass_from_dict(
+                    self.pix2text_processor, 
+                    config_data['pix2text_processor']
+                )
+            
             # 更新Markdown生成器配置
             if 'md_generator' in config_data:
                 self._update_dataclass_from_dict(
@@ -309,6 +346,7 @@ class Settings:
                 'pdf_converter': self._dataclass_to_dict(self.pdf_converter),
                 'layout_analyzer': self._dataclass_to_dict(self.layout_analyzer),
                 'ocr_processor': self._dataclass_to_dict(self.ocr_processor),
+                'pix2text_processor': self._dataclass_to_dict(self.pix2text_processor),
                 'table_parser': self._dataclass_to_dict(self.table_parser),
                 'formula_parser': self._dataclass_to_dict(self.formula_parser),
                 'reading_order': self._dataclass_to_dict(self.reading_order),

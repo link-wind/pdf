@@ -144,7 +144,7 @@ class MarkdownGenerator:
             for page in document.pages:
                 for region in page.regions:
                     # 排除图片区域
-                    if region.region_type != RegionType.IMAGE:
+                    if region.region_type != RegionType.FIGURE:
                         region_name = region.region_type.value
                         stats[region_name] = stats.get(region_name, 0) + 1
         except Exception as e:
@@ -159,7 +159,7 @@ class MarkdownGenerator:
             
             # 移除页面标题，直接生成内容
             # 过滤掉图片区域，只处理非图片区域
-            non_image_regions = [r for r in page.regions if r.region_type != RegionType.IMAGE]
+            non_image_regions = [r for r in page.regions if r.region_type != RegionType.FIGURE]
             logger.debug(f"页面 {page.page_number + 1}: 总区域 {len(page.regions)}，非图片区域 {len(non_image_regions)}")
             
             # 按阅读顺序处理非图片区域，不进行合并
@@ -180,7 +180,7 @@ class MarkdownGenerator:
         """生成区域内容，只有TITLE类型生成标题格式，其他都生成文本格式"""
         try:
             # 跳过图片区域和标题占位符，不生成任何内容
-            if region.region_type == RegionType.IMAGE:
+            if region.region_type == RegionType.FIGURE:
                 logger.debug(f"跳过图片区域: {region.bbox}")
                 return ""
             
@@ -205,7 +205,6 @@ class MarkdownGenerator:
                     r'^\[Formula\]$',
                     r'^\[FormulaCaption\]$',
                     r'^\[Image\]$',
-                    r'^\[Caption\]$',
                     r'^\[Abandon\]$'
                 ]
                 
@@ -221,9 +220,9 @@ class MarkdownGenerator:
             elif region.region_type == RegionType.TABLE:
                 return self._generate_table_content(region)
             # 公式类型特殊处理
-            elif region.region_type == RegionType.FORMULA:
+            elif region.region_type == RegionType.ISOLATE_FORMULA:
                 return self._generate_formula_content(region)
-            # 其他所有类型（TEXT、HEADER、FOOTER、CAPTION等）都作为普通文本处理
+            # 其他所有类型（TEXT、HEADER、FOOTER等）都作为普通文本处理
             else:
                 return self._generate_text_content(region)
                 
