@@ -1,11 +1,11 @@
-"""
-Markdown生成模块
+"""Markdown生成模块
 将解析后的文档内容转换为Markdown格式
 """
 
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 import re
+import os
 
 try:
     from loguru import logger
@@ -19,6 +19,69 @@ from ..models.document import (
     TextRegion, TableRegion, FormulaRegion, ImageRegion
 )
 
+# LLM辅助函数的导入
+from ..utils.llm_aided import llm_aided_title
+
+def count_leading_hashes(text: str) -> int:
+    """统计文本开头的#号数量"""
+    if not text:
+        return 0
+    count = 0
+    for char in text.strip():
+        if char == '#':
+            count += 1
+        else:
+            break
+    return count
+
+def strip_leading_hashes(text: str) -> str:
+    """去除文本开头的#号"""
+    if not text:
+        return text
+    stripped = text.strip()
+    while stripped.startswith('#'):
+        stripped = stripped[1:]
+    return stripped.strip()
+
+def get_title_level(block) -> int:
+    """获取标题级别并进行规范化"""
+    # 如果传入的是字符串，先统计#号数量
+    if isinstance(block, str):
+        title_level = count_leading_hashes(block)
+    else:
+        # 如果是block对象，获取level属性
+        title_level = block.get('level', 1) if hasattr(block, 'get') else getattr(block, 'level', 1)
+    
+    # 规范化标题级别
+    if title_level > 4:  # 最大4级标题
+        title_level = 4
+    elif title_level < 1:
+        title_level = 0  # 0表示非标题
+    
+    return title_level
+
+def fix_title_blocks(blocks):
+    """修复标题块"""
+    for block in blocks:
+        if block.get("type") == "TITLE":
+            title_content = ' '.join([span.get('content', '') for line in block.get('lines', []) for span in line.get('spans', [])])
+            title_level = count_leading_hashes(title_content)
+            
+            # 使用get_title_level进行规范化
+            block['level'] = get_title_level({'level': title_level})
+            
+            # 清理标题内容，去除#号
+            if 'lines' in block:
+                for line in block['lines']:
+                    if 'spans' in line:
+                        for span in line['spans']:
+                            if 'content' in span:
+                                span['content'] = strip_leading_hashes(span['content'])
+                            break
+                        break
+    return blocks
+
+
 
 class MarkdownGenerator:
     """Markdown生成器
@@ -27,13 +90,33 @@ class MarkdownGenerator:
     支持多种文档类型和自定义格式配置。
     """
     
-    def __init__(self, config: MarkdownGeneratorConfig):
+    def __init__(self, config: MarkdownGeneratorConfig = None, llm_config = None):
         """初始化Markdown生成器
         
         Args:
             config: Markdown生成器配置对象
+            llm_config: LLM配置对象或字典，用于标题优化
         """
-        self.config = config
+        self.config = config or MarkdownGeneratorConfig()
+        
+        # 处理LLM配置
+        if llm_config is None:
+            self.llm_config = {}
+        elif hasattr(llm_config, '__dict__'):  # 如果是配置对象
+            self.llm_config = {
+                'api_key': getattr(llm_config, 'api_key', ''),
+                'base_url': getattr(llm_config, 'base_url', 'https://api.deepseek.com'),
+                'model': getattr(llm_config, 'model', 'deepseek-chat'),
+                'temperature': getattr(llm_config, 'temperature', 0.7),
+                'max_tokens': getattr(llm_config, 'max_tokens', 4096),
+                'timeout': getattr(llm_config, 'timeout', 30),
+                'max_retries': getattr(llm_config, 'max_retries', 3),
+                'enabled': getattr(llm_config, 'enabled', False),
+                'provider': getattr(llm_config, 'provider', 'deepseek')
+            }
+        else:  # 如果是字典
+            self.llm_config = llm_config
+        
         logger.info("Markdown生成器初始化完成")
     
     def generate(self, document: Document) -> str:
@@ -41,7 +124,8 @@ class MarkdownGenerator:
         
         采用Pipeline模式，按顺序处理文档的各个部分：
         1. 逐页内容生成
-        2. 格式化和优化
+        2. 标题优化处理
+        3. 格式化和优化
         
         Args:
             document: 解析后的文档对象
@@ -51,6 +135,9 @@ class MarkdownGenerator:
         """
         try:
             logger.info("开始生成Markdown文档")
+            
+            # 首先优化文档标题
+            document = self.optimize_document_titles(document)
             
             markdown_parts = []
             
@@ -76,81 +163,7 @@ class MarkdownGenerator:
             logger.error(f"Markdown生成失败: {str(e)}")
             return ""
     
-    def _generate_header(self, document: Document) -> str:
-        """生成文档头部信息
-        
-        包含文档标题、元数据和统计信息
-        
-        Args:
-            document: 文档对象
-            
-        Returns:
-            str: 格式化的头部内容
-        """
-        header_parts = []
-        
-        try:
-            # 文档标题
-            source_name = document.source_path.stem
-            header_parts.append(f"# {source_name}")
-            header_parts.append("")
-            
-            # 元数据表格
-            if document.metadata:
-                header_parts.append("## 文档信息")
-                header_parts.append("")
-                
-                # 使用表格格式展示元数据
-                header_parts.append("| 属性 | 值 |")
-                header_parts.append("|------|-----|")
-                
-                for key, value in document.metadata.items():
-                    if key and value is not None:
-                        # 清理值中的特殊字符
-                        clean_value = str(value).replace("|", "\\|").replace("\n", " ")
-                        header_parts.append(f"| {key} | {clean_value} |")
-                
-                header_parts.append("")
-            
-            # 统计信息
-            header_parts.append("## 文档统计")
-            header_parts.append("")
-            header_parts.append(f"- **页数**: {document.page_count}")
-            header_parts.append(f"- **总区域数**: {document.total_regions}")
-            
-            # 按类型统计区域
-            region_stats = self._calculate_region_statistics(document)
-            for region_type, count in region_stats.items():
-                header_parts.append(f"- **{region_type}**: {count}个")
-            
-            if document.processing_time:
-                header_parts.append(f"- **处理时间**: {document.processing_time:.2f}秒")
-            
-            header_parts.append("")
-            header_parts.append("---")
-            header_parts.append("")
-            
-            return "\n".join(header_parts)
-            
-        except Exception as e:
-            logger.error(f"头部信息生成失败: {str(e)}")
-            return ""
-    
-    def _calculate_region_statistics(self, document: Document) -> Dict[str, int]:
-        """计算区域类型统计，排除图片区域"""
-        stats = {}
-        
-        try:
-            for page in document.pages:
-                for region in page.regions:
-                    # 排除图片区域
-                    if region.region_type != RegionType.FIGURE:
-                        region_name = region.region_type.value
-                        stats[region_name] = stats.get(region_name, 0) + 1
-        except Exception as e:
-            logger.error(f"区域统计计算失败: {str(e)}")
-        
-        return stats
+
     
     def _generate_page_content(self, page: PageLayout) -> str:
         """生成页面内容，直接处理每个区域，不进行合并"""
@@ -177,52 +190,25 @@ class MarkdownGenerator:
             return ""
     
     def _generate_region_content(self, region: Region) -> str:
-        """生成区域内容，只有TITLE类型生成标题格式，其他都生成文本格式"""
+        """生成区域内容"""
         try:
-            # 跳过图片区域和标题占位符，不生成任何内容
+            # 跳过图片区域
             if region.region_type == RegionType.FIGURE:
-                logger.debug(f"跳过图片区域: {region.bbox}")
                 return ""
             
-            # 跳过FIGURE类型的区域（图片）
-            if region.region_type == RegionType.FIGURE:
-                logger.debug(f"跳过图片区域: {region.bbox}")
-                return ""
-            
-            # 跳过所有占位符内容（以[开头且以]结尾的内容）
+            # 跳过占位符内容
             if hasattr(region, 'content') and region.content:
                 content = region.content.strip()
                 if content.startswith('[') and content.endswith(']'):
-                    logger.debug(f"跳过占位符内容: {content}")
                     return ""
-                
-                # 跳过常见的占位符模式
-                placeholder_patterns = [
-                    r'^\[Figure\]$',
-                    r'^\[FigureCaption\]$',
-                    r'^\[Table\]$',
-                    r'^\[TableCaption\]$',
-                    r'^\[Formula\]$',
-                    r'^\[FormulaCaption\]$',
-                    r'^\[Image\]$',
-                    r'^\[Abandon\]$'
-                ]
-                
-                for pattern in placeholder_patterns:
-                    if re.match(pattern, content):
-                        logger.debug(f"跳过占位符内容: {content}")
-                        return ""
             
-            # 只有TITLE类型才生成标题格式
+            # 根据区域类型生成内容
             if region.region_type == RegionType.TITLE:
                 return self._generate_title_content(region)
-            # 表格类型特殊处理
             elif region.region_type == RegionType.TABLE:
                 return self._generate_table_content(region)
-            # 公式类型特殊处理
             elif region.region_type == RegionType.ISOLATE_FORMULA:
                 return self._generate_formula_content(region)
-            # 其他所有类型（TEXT、HEADER、FOOTER等）都作为普通文本处理
             else:
                 return self._generate_text_content(region)
                 
@@ -231,103 +217,64 @@ class MarkdownGenerator:
             return ""
     
     def _generate_text_content(self, region) -> str:
-        """生成文本内容
-        
-        对于Text类型的区域，生成普通段落文本，不添加标题标记
-        
-        Args:
-            region: 文本区域对象（可能是TextRegion或普通Region）
-            
-        Returns:
-            str: 格式化的文本内容
-        """
-        content_parts = []
-        
+        """生成文本内容"""
         try:
-            # 如果是TextRegion且有text_content
+            # 处理TextRegion
             if hasattr(region, 'text_content') and region.text_content:
+                text_parts = []
                 for text_data in region.text_content:
-                    # TextElement对象有text属性，不是content属性
                     text_content = getattr(text_data, 'text', None) or getattr(text_data, 'content', None)
-                    if not text_content:
-                        continue
-                    
-                    # 清理和格式化文本
-                    cleaned_text = self._clean_text(text_content)
-                    
-                    # 对于Text类型区域，直接添加为普通文本，不判断标题
-                    if cleaned_text.strip():
-                        content_parts.append(cleaned_text.strip())
+                    if text_content:
+                        cleaned_text = self._clean_text(text_content)
+                        if cleaned_text.strip():
+                            text_parts.append(cleaned_text.strip())
+                return "".join(text_parts)
             
-            # 如果是普通Region且有content
+            # 处理普通Region
             elif hasattr(region, 'content') and region.content:
-                # 跳过占位符内容
                 if region.content.strip().startswith('[') and region.content.strip().endswith(']'):
                     return ""
-                
                 cleaned_text = self._clean_text(region.content)
-                if cleaned_text.strip():
-                    content_parts.append(cleaned_text.strip())
+                return cleaned_text.strip() if cleaned_text.strip() else ""
             
-            # 返回合并的文本，直接连接不添加空格
-            return "".join(content_parts) if content_parts else ""
+            return ""
             
         except Exception as e:
             logger.error(f"文本内容生成失败: {str(e)}")
             return ""
     
     def _generate_title_content(self, region) -> str:
-        """生成标题内容
-        
-        专门处理TITLE类型的区域，将同一个Title区域的所有文字直接合并为一个标题
-        此方法只会被TITLE类型的区域调用，无需类型检查
-        
-        Args:
-            region: 标题区域对象（调用前已确保是TITLE类型）
-            
-        Returns:
-            str: 格式化的标题内容
-        """
+        """生成标题内容"""
         try:
             text_parts = []
-            title_level = 1  # 默认标题级别
-            first_text_for_level = True
+            title_level = 1
             
-            # 如果是TextRegion且有text_content
+            # 提取文本内容
             if hasattr(region, 'text_content') and region.text_content:
                 for text_data in region.text_content:
-                    # TextElement对象有text属性，不是content属性
                     text_content = getattr(text_data, 'text', None) or getattr(text_data, 'content', None)
-                    if not text_content:
-                        continue
-                    
-                    # 清理文本并收集
-                    cleaned_text = self._clean_text(text_content)
-                    if cleaned_text.strip():
-                        text_parts.append(cleaned_text.strip())
-                    
-                    # 使用第一个有效文本的字体大小确定标题级别
-                    if first_text_for_level and cleaned_text.strip():
-                        title_level = self._determine_title_level(text_data)
-                        first_text_for_level = False
-            
-            # 如果是普通Region且有content
+                    if text_content:
+                        cleaned_text = self._clean_text(text_content)
+                        if cleaned_text.strip():
+                            text_parts.append(cleaned_text.strip())
             elif hasattr(region, 'content') and region.content:
-                # 跳过占位符内容
                 if region.content.strip().startswith('[') and region.content.strip().endswith(']'):
                     return ""
-                
                 cleaned_text = self._clean_text(region.content)
                 if cleaned_text.strip():
                     text_parts.append(cleaned_text.strip())
-                # 使用字体大小判断标题级别
-                title_level = self._determine_title_level(region)
             
-            # 将所有文本合并为一个标题
+            # 确定标题级别
+            if hasattr(region, 'title_level') and region.title_level:
+                title_level = get_title_level({'level': region.title_level})
+            elif hasattr(region, 'level') and region.level:
+                title_level = get_title_level({'level': region.level})
+            else:
+                title_level = get_title_level({'level': title_level})
+            
+            # 生成标题
             if text_parts:
-                # 直接合并所有文本，不添加空格
                 merged_title = "".join(text_parts)
-                # 去除多余的空格和换行符
                 merged_title = re.sub(r'\s+', ' ', merged_title).strip()
                 return f"{'#' * title_level} {merged_title}"
             
@@ -337,6 +284,312 @@ class MarkdownGenerator:
             logger.error(f"标题内容生成失败: {str(e)}")
             return ""
     
+    def optimize_document_titles(self, document: Document) -> Document:
+        """
+        四步标题优化流程：
+        1. 格式解析：基于Markdown格式的#号数量确定初始级别
+        2. 智能优化：使用LLM根据上下文和视觉特征优化标题层级
+        3. 规范化输出：确保标题级别在合理范围内（1-4级）
+        4. 结构化输出：在最终的Markdown中正确格式化标题
+        
+        Args:
+            document: 文档对象
+            
+        Returns:
+            Document: 优化后的文档对象
+        """
+        try:
+            logger.info("开始四步标题优化流程")
+            
+            # 第一步：格式解析 - 基于Markdown格式的#号数量确定初始级别
+            title_regions = self._parse_title_formats(document)
+            if not title_regions:
+                logger.info("未发现标题区域，跳过标题优化")
+                return document
+            
+            logger.info(f"第一步完成：解析到 {len(title_regions)} 个标题")
+            
+            # 第二步：智能优化 - 使用LLM根据上下文和视觉特征优化标题层级
+            if self._should_use_llm_optimization(document):
+                logger.info("第二步：开始LLM智能优化")
+                self._apply_llm_title_optimization(title_regions)
+                logger.info("第二步完成：LLM智能优化完成")
+            else:
+                logger.info("第二步：使用传统方法优化标题")
+                self._apply_traditional_title_optimization(document)
+                logger.info("第二步完成：传统方法优化完成")
+            
+            # 第三步：规范化输出 - 确保标题级别在合理范围内（1-4级）
+            self._normalize_title_levels(document)
+            logger.info("第三步完成：标题级别规范化完成")
+            
+            # 第四步：结构化输出 - 确保标题层级的连续性和合理性
+            self._structure_title_hierarchy(document)
+            logger.info("第四步完成：标题层级结构化完成")
+            
+            logger.info("四步标题优化流程完成")
+            return document
+            
+        except Exception as e:
+            logger.error(f"标题优化流程失败: {str(e)}")
+            return document
+    
+    def _parse_title_formats(self, document: Document) -> list:
+        """
+        第一步：格式解析 - 基于Markdown格式的#号数量确定初始级别
+        
+        Args:
+            document: 文档对象
+            
+        Returns:
+            list: 标题区域列表
+        """
+        title_regions = []
+        
+        try:
+            for page in document.pages:
+                for region in page.regions:
+                    if region.region_type == RegionType.TITLE:
+                        # 获取文本内容，支持多种region类型
+                        text_content = ''
+                        
+                        # 如果是TextRegion且有text_content
+                        if hasattr(region, 'text_content') and region.text_content:
+                            text_parts = []
+                            for text_data in region.text_content:
+                                text = getattr(text_data, 'text', None) or getattr(text_data, 'content', None)
+                                if text:
+                                    text_parts.append(text.strip())
+                            text_content = ' '.join(text_parts)
+                        
+                        # 如果是普通Region
+                        if not text_content:
+                            text_content = getattr(region, 'text', '') or getattr(region, 'content', '')
+                        
+                        if text_content:
+                            # 检查是否包含Markdown标题标记
+                            hash_count = count_leading_hashes(text_content)
+                            
+                            if hash_count > 0:
+                                # 基于#号数量设置初始级别
+                                region.title_level = hash_count
+                                # 清理内容，去除#号
+                                region.clean_text = strip_leading_hashes(text_content)
+                                logger.debug(f"解析标题格式: #{hash_count} {region.clean_text}")
+                            else:
+                                # 没有#号的标题，设置默认级别
+                                region.title_level = 1  # 默认为一级标题
+                                region.clean_text = text_content.strip()
+                                logger.debug(f"无格式标题，设为默认级别: {region.clean_text}")
+                            
+                            title_regions.append(region)
+                        
+        except Exception as e:
+            logger.error(f"标题格式解析失败: {str(e)}")
+        
+        return title_regions
+    
+    def _apply_traditional_title_optimization(self, document: Document) -> None:
+        """
+        传统方法优化标题（当LLM不可用时的备选方案）
+        使用fix_title_blocks逻辑
+        
+        Args:
+            document: 文档对象
+        """
+        try:
+            # 构建blocks结构
+            blocks = []
+            
+            for page in document.pages:
+                for region in page.regions:
+                    if region.region_type == RegionType.TITLE:
+                        block = {
+                            "type": "TITLE",
+                            "region": region,
+                            "lines": [{
+                                "spans": [{
+                                    "content": getattr(region, 'clean_text', '') or getattr(region, 'text', '') or getattr(region, 'content', '')
+                                }]
+                            }]
+                        }
+                        blocks.append(block)
+            
+            # 应用fix_title_blocks逻辑
+            optimized_blocks = fix_title_blocks(blocks)
+            
+            # 将结果应用回region
+            for block in optimized_blocks:
+                if 'region' in block and 'level' in block:
+                    region = block['region']
+                    region.title_level = block['level']
+                    
+        except Exception as e:
+            logger.error(f"传统标题优化失败: {str(e)}")
+    
+    def _normalize_title_levels(self, document: Document) -> None:
+        """
+        第三步：规范化输出 - 确保标题级别在合理范围内（1-4级）
+        
+        Args:
+            document: 文档对象
+        """
+        try:
+            for page in document.pages:
+                for region in page.regions:
+                    if region.region_type == RegionType.TITLE and hasattr(region, 'title_level'):
+                        # 使用get_title_level函数进行规范化
+                        normalized_level = get_title_level({'level': region.title_level})
+                        region.title_level = normalized_level
+                        
+                        logger.debug(f"标题级别规范化: {region.title_level} -> {normalized_level}")
+                        
+        except Exception as e:
+            logger.error(f"标题级别规范化失败: {str(e)}")
+    
+    def _structure_title_hierarchy(self, document: Document) -> None:
+        """
+        第四步：结构化输出 - 确保标题层级的连续性和合理性
+        
+        Args:
+            document: 文档对象
+        """
+        try:
+            # 收集所有标题
+            all_titles = []
+            for page in document.pages:
+                for region in page.regions:
+                    if region.region_type == RegionType.TITLE and hasattr(region, 'title_level'):
+                        all_titles.append(region)
+            
+            if not all_titles:
+                return
+            
+            # 确保层级连续性
+            prev_level = 0
+            for region in all_titles:
+                current_level = region.title_level
+                
+                # 如果跳级太大，调整为连续级别
+                if current_level > prev_level + 1:
+                    region.title_level = prev_level + 1
+                    logger.debug(f"调整跳级标题: {current_level} -> {region.title_level}")
+                
+                prev_level = region.title_level
+                
+                # 确保不超过4级
+                if region.title_level > 4:
+                    region.title_level = 4
+                    logger.debug(f"限制标题级别为4级: {region.title_level}")
+                
+        except Exception as e:
+            logger.error(f"标题层级结构化失败: {str(e)}")
+    
+    def _apply_llm_title_optimization(self, title_regions: list) -> None:
+        """
+        第二步：智能优化 - 使用LLM根据上下文和视觉特征优化标题层级
+        
+        Args:
+            title_regions: 标题区域列表
+        """
+        try:
+            if not title_regions:
+                logger.debug("没有标题区域需要LLM优化")
+                return
+            
+            # 构建page_info_list结构
+            page_info_list = []
+            page_regions_map = {}  # 用于映射页面和区域
+            
+            # 简化页面信息构建逻辑
+            page_info = {
+                "page_id": "default_page",
+                "page_width": 800,  # 默认页面宽度
+                "page_height": 1200,  # 默认页面高度
+                "regions": []
+            }
+            page_info_list.append(page_info)
+            
+            # 为每个标题区域构建信息
+            for region in title_regions:
+                region_info = {
+                    "region_id": getattr(region, 'region_id', id(region)),
+                    "bbox": getattr(region, 'bbox', [0, 0, 0, 0]),
+                    "text": getattr(region, 'clean_text', '') or getattr(region, 'text', '') or getattr(region, 'content', ''),
+                    "region_type": "title",
+                    "avg_line_height": self._calculate_region_height(region),
+                    "initial_level": getattr(region, 'title_level', 1)
+                }
+                page_info["regions"].append(region_info)
+            
+            if not page_info_list:
+                logger.debug("没有找到有效的页面信息，跳过LLM优化")
+                return
+            
+            # 调用LLM辅助标题优化
+            logger.info(f"开始LLM辅助标题优化，处理{len(title_regions)}个标题")
+            optimized_result = llm_aided_title(
+                page_info_list=page_info_list,
+                llm_config=self.llm_config
+            )
+            
+            if optimized_result and 'pages' in optimized_result:
+                # 将LLM返回的优化级别应用回标题区域
+                region_level_map = {}
+                
+                for page_data in optimized_result['pages']:
+                    for region_data in page_data.get('regions', []):
+                        region_id = region_data.get('region_id')
+                        optimized_level = region_data.get('level', 1)
+                        region_level_map[region_id] = optimized_level
+                
+                # 更新标题区域的级别
+                for region in title_regions:
+                    region_id = getattr(region, 'region_id', id(region))
+                    if region_id in region_level_map:
+                        old_level = region.title_level
+                        region.title_level = region_level_map[region_id]
+                        logger.debug(f"LLM优化标题级别: {str(old_level)} -> {str(region.title_level)} ('{getattr(region, 'clean_text', '')}')")
+                
+                logger.info("LLM辅助标题优化完成")
+            else:
+                logger.warning("LLM优化返回结果为空，保持原有级别")
+                
+        except Exception as e:
+            logger.error(f"LLM辅助标题优化失败: {str(e)}")
+            # 发生错误时，保持原有级别，不影响后续处理
+    
+    def _should_use_llm_optimization(self, document: Document) -> bool:
+        """判断是否应该使用LLM优化"""
+        # 检查配置是否启用LLM标题优化
+        if not getattr(self.config, 'enable_llm_title_optimization', False):
+            return False
+            
+        # 检查LLM配置是否可用
+        if not self.llm_config or not self.llm_config.get('enabled', False):
+            return False
+            
+        # 检查API密钥是否配置
+        if not self.llm_config.get('api_key'):
+            return False
+            
+        # 检查标题数量是否达到阈值
+        title_count = sum(1 for page in document.pages 
+                         for region in page.regions 
+                         if region.region_type == RegionType.TITLE)
+        threshold = getattr(self.config, 'llm_title_threshold', 5)
+        return title_count >= threshold
+    
+    def _calculate_region_height(self, region) -> float:
+        """计算区域的平均行高"""
+        if hasattr(region, 'bbox') and region.bbox:
+            # 处理BoundingBox对象
+            if hasattr(region.bbox, 'y2') and hasattr(region.bbox, 'y1'):
+                return abs(region.bbox.y2 - region.bbox.y1)
+            # 处理列表或元组格式的bbox
+            elif isinstance(region.bbox, (list, tuple)) and len(region.bbox) >= 4:
+                return abs(region.bbox[3] - region.bbox[1])
+        return 20.0
 
     def _generate_table_content(self, table_region) -> str:
         """生成表格内容
@@ -433,242 +686,66 @@ class MarkdownGenerator:
         return "\n\n".join(content_parts) if content_parts else ""
         
     def _post_process_markdown(self, content: str) -> str:
-        """增强的Markdown后处理"""
+        """Markdown后处理"""
         if not content:
             return ""
-
-        # 分阶段处理
         content = self._normalize_line_breaks(content)
-        content = self._fix_table_formatting(content)
         content = self._adjust_headings(content)
         return content.strip()
+    
+
 
     def _normalize_line_breaks(self, content: str) -> str:
         """标准化换行"""
-        # 保留表格内的单换行，其他情况双换行
-        lines = content.split('\n')
-        result = []
-        in_table = False
+        content = re.sub(r'\n{3,}', '\n\n', content)
+        return content.lstrip('\n')
 
-        for line in lines:
-            is_table_line = '|' in line and '-' not in line
-            
-            if is_table_line:
-                in_table = True
-                result.append(line)
-            elif in_table and not line.strip():
-                continue  # 跳过表格内的空行
-            else:
-                in_table = False
-                result.append(line)
 
-        # 合并多余空行
-        return re.sub(r'\n{3,}', '\n\n', '\n'.join(result))
-
-    def _fix_table_formatting(self, content: str) -> str:
-        """修复表格格式"""
-        # 不再自动添加表格前后的空行，保持原始格式
-        return content
 
     def _adjust_headings(self, content: str) -> str:
         """调整标题格式"""
-        # 确保标题前后有空行
         content = re.sub(r'(#+\s.*?)\n([^#\n])', r'\1\n\n\2', content)
         return re.sub(r'([^\n#])\n(#+\s)', r'\1\n\n\2', content)
 
-    def save_to_file(self, markdown_content: str, output_path: Path) -> None:
-        """保存Markdown内容到文件
-        
-        Args:
-            markdown_content: Markdown内容
-            output_path: 输出文件路径
-        """
+    def save_to_file(self, content: str, output_path: str) -> bool:
+        """保存Markdown内容到文件"""
         try:
-            # 确保输出目录存在
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            # 写入文件
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
             with open(output_path, 'w', encoding='utf-8') as f:
-                f.write(markdown_content)
-            
+                f.write(content)
             logger.info(f"Markdown文件已保存到: {output_path}")
-            
+            return True
         except Exception as e:
             logger.error(f"保存Markdown文件失败: {str(e)}")
-            raise
+            return False
     
-    def batch_generate(self, documents: List[Document]) -> List[str]:
-        """批量生成Markdown文档
-        
-        支持批量处理多个文档，提高处理效率
-        
-        Args:
-            documents: 文档对象列表
-            
-        Returns:
-            List[str]: Markdown内容列表
-        """
-        results = []
-        
-        try:
-            for i, document in enumerate(documents):
-                logger.info(f"生成第 {i+1}/{len(documents)} 个文档")
-                markdown = self.generate(document)
-                results.append(markdown)
-            
-            logger.info(f"批量生成完成，共处理 {len(documents)} 个文档")
-            return results
-            
-        except Exception as e:
-            logger.error(f"批量生成失败: {str(e)}")
-            return results
+
     
     def _generate_markdown_table(self, table_data) -> str:
-        """增强版Markdown表格生成，彻底去除全空行（最终再过滤一遍）"""
-        if not hasattr(table_data, 'headers') and not hasattr(table_data, 'rows'):
-            return ""
-
-        def is_valid_table(headers, rows):
-            if not any(any(str(cell).strip() for cell in row) for row in rows):
-                return False
-            return bool(headers or rows)
-
-        headers = getattr(table_data, 'headers', [])
-        rows = getattr(table_data, 'rows', [])
-        
-        if not is_valid_table(headers, rows):
-            return ""
-
-        align_map = {
-            'left': ':---',
-            'center': ':---:',
-            'right': '---:'
-        }
-        
-        def clean_cell(cell):
-            content = str(cell).strip()
-            content = re.sub(r'\s+', ' ', content)
-            content = content.replace('|', '\\|')
-            return content or " "
-
-        table_lines = []
-        if headers:
-            cleaned_headers = [clean_cell(h) for h in headers]
-            table_lines.append(f"| {' | '.join(cleaned_headers)} |")
-            alignments = getattr(table_data, 'alignments', ['left']*len(headers))
-            separators = [align_map.get(align.lower(), '---') for align in alignments]
-            table_lines.append(f"| {' | '.join(separators)} |")
-
-        for row in rows:
-            if not any(str(cell).strip() for cell in row):
-                continue
-            padded_row = list(row) + [""] * (len(headers) - len(row))
-            cleaned_row = [clean_cell(cell) for cell in padded_row]
-            table_lines.append(f"| {' | '.join(cleaned_row)} |")
-
-        # 最后再过滤一遍全空行
-        filtered_lines = [line for line in table_lines if any(cell.strip() for cell in line.strip('|').split('|'))]
-        return "\n".join(filtered_lines) if filtered_lines else ""
+        """生成Markdown格式的表格"""
+        try:
+            if isinstance(table_data, str):
+                return table_data
+            
+            if hasattr(table_data, 'rows') and table_data.rows:
+                rows = table_data.rows
+                if rows:
+                    header = "| " + " | ".join(str(cell) for cell in rows[0]) + " |"
+                    separator = "| " + " | ".join("---" for _ in rows[0]) + " |"
+                    body_rows = ["| " + " | ".join(str(cell) for cell in row) + " |" for row in rows[1:]]
+                    return "\n".join([header, separator] + body_rows)
+            
+            return str(table_data)
+        except Exception as e:
+            logger.error(f"表格生成失败: {str(e)}")
+            return str(table_data) if table_data else ""
 
     def _clean_text(self, text: str) -> str:
-        """
-        文本清洗：去除多余空白、特殊不可见字符，保留必要格式。
-
-        Args:
-            text (str): 原始文本
-
-        Returns:
-            str: 清洗后的文本
-        """
-        if not isinstance(text, str):
+        """清理文本内容"""
+        if not text:
             return ""
-        # 去除不可见字符和多余空白
-        cleaned = text.replace('\u200b', '').replace('\ufeff', '')
-        cleaned = re.sub(r'\s+', ' ', cleaned)
-        return cleaned.strip()
-    
-    def _determine_title_level(self, text_data) -> int:
-        """
-        根据区域高度智能判断标题级别，适配不同类型的输入对象。
-        支持从配置文件读取阈值。
-
-        Args:
-            text_data: 文本数据对象，可能是TextData、Region或其他包含高度信息的对象
-
-        Returns:
-            int: 标题级别（1~6，1为最高级标题）
-        """
         try:
-            # 尝试从不同属性获取区域高度
-            region_height = None
-            
-            # 优先尝试获取区域高度
-            if hasattr(text_data, 'bbox') and text_data.bbox is not None:
-                if hasattr(text_data.bbox, 'height'):
-                    region_height = text_data.bbox.height
-                elif hasattr(text_data.bbox, 'y2') and hasattr(text_data.bbox, 'y1'):
-                    region_height = text_data.bbox.y2 - text_data.bbox.y1
-            
-            # 备选：尝试获取font_size属性
-            font_size = None
-            if hasattr(text_data, 'font_size') and text_data.font_size is not None:
-                font_size = text_data.font_size
-            # 备选：尝试avg_line_height
-            elif hasattr(text_data, 'avg_line_height') and text_data.avg_line_height is not None:
-                font_size = text_data.avg_line_height
-            # 备选：尝试height属性（如果没有bbox）
-            elif hasattr(text_data, 'height') and text_data.height is not None and region_height is None:
-                region_height = text_data.height
-            
-            # 尝试从配置读取阈值，否则使用默认值
-            thresholds = getattr(self.config, 'title_level_thresholds', {})
-            level_1_threshold = thresholds.get('level_1', 16)
-            level_2_threshold = thresholds.get('level_2', 14)
-            level_3_threshold = thresholds.get('level_3', 12)
-            level_4_threshold = thresholds.get('level_4', 10)
-            level_5_threshold = thresholds.get('level_5', 8)
-            
-            # 优先使用区域高度判断
-            if region_height is not None:
-                # 根据区域高度的比例来判断标题级别
-                # 通常标题区域会比正文区域高
-                if region_height >= 50:      # 特大标题区域
-                    return 1
-                elif region_height >= 40:    # 大标题区域
-                    return 2
-                elif region_height >= 30:    # 中等标题区域
-                    return 3
-                elif region_height >= 20:    # 小标题区域
-                    return 4
-                elif region_height >= 15:    # 更小标题区域
-                    return 5
-                else:                        # 最小标题区域
-                    return 6
-            
-            # 如果没有区域高度信息，回退到使用字体大小
-            elif font_size is not None:
-                if font_size >= level_1_threshold:      # 特大标题
-                    return 1
-                elif font_size >= level_2_threshold:    # 大标题
-                    return 2
-                elif font_size >= level_3_threshold:    # 中等标题
-                    return 3
-                elif font_size >= level_4_threshold:    # 小标题
-                    return 4
-                elif font_size >= level_5_threshold:    # 更小标题
-                    return 5
-                else:                                   # 最小标题
-                    return 6
-            
-            # 如果没有高度和字体大小信息，尝试根据置信度调整
-            confidence = getattr(text_data, 'confidence', 1.0)
-            if confidence >= 0.9:
-                return 2  # 高置信度，可能是重要标题
-            elif confidence >= 0.7:
-                return 3  # 中等置信度
-            else:
-                return 4  # 低置信度，降低标题级别
-            
+            return re.sub(r'\s+', ' ', text).strip()
         except Exception as e:
-            logger.debug(f"标题级别判断失败: {str(e)}")
-            return 3  # 默认返回三级标题
+            logger.error(f"文本清理失败: {str(e)}")
+            return text

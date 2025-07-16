@@ -134,7 +134,7 @@ def main():
     parser = argparse.ArgumentParser(description="生成提交文件 - 先JSON后CSV")
     parser.add_argument(
         "-i", "--input", 
-        default="data/output/markdown",
+        default="output/markdown",
         help="包含markdown文件的输入目录 (默认: output/markdown)"
     )
     parser.add_argument(

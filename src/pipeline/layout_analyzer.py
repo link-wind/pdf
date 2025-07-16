@@ -200,9 +200,45 @@ class LayoutAnalyzer:
                         logger.debug(f"跳过舍弃内容: {label}")
                         continue
                     
-                    # 创建边界框
+                    # 创建边界框并适当扩展区域
                     x1, y1, x2, y2 = map(int, box)
-                    bbox = BoundingBox(x1, y1, x2, y2)
+                    
+                    # 计算扩展边距
+                    region_width = x2 - x1
+                    region_height = y2 - y1
+                    
+                    # 根据区域类型设置不同的扩展比例
+                    if label == 'Title':
+                        # 标题区域：适度扩展，特别是垂直方向
+                        expand_x = max(25, int(region_width * 0.18))  # 水平扩展5%
+                        expand_y = max(35, int(region_height * 0.30))  # 垂直扩展15%
+                    elif label in ['IsolateFormula', 'FormulaCaption']:
+                        # 公式区域：需要更多上下文
+                        expand_x = max(5, int(region_width * 0.05))  # 水平扩展8%
+                        expand_y = max(1, int(region_height * 0.02))  # 垂直扩展20%
+                    elif label in ['Table', 'TableCaption', 'TableFootnote']:
+                        # 表格区域：保守扩展
+                        expand_x = max(5, int(region_width * 0.03))  # 水平扩展3%
+                        expand_y = max(5, int(region_height * 0.02))  # 垂直扩展8%
+                    elif label in ['Figure', 'FigureCaption']:
+                        # 图片区域：轻微扩展
+                        expand_x = max(4, int(region_width * 0.04))  # 水平扩展4%
+                        expand_y = max(6, int(region_height * 0.10))  # 垂直扩展10%
+                    else:
+                        # 默认文本区域：平衡扩展
+                        expand_x = max(1, int(region_width * 0.01))  # 水平扩展6%
+                        expand_y = max(1, int(region_height * 0.01))  # 垂直扩展12%
+                    
+                    # 应用扩展并确保不超出图像边界
+                    image_height, image_width = image_shape[:2]
+                    x1_expanded = max(0, x1 - expand_x)
+                    y1_expanded = max(0, y1 - expand_y)
+                    x2_expanded = min(image_width, x2 + expand_x)
+                    y2_expanded = min(image_height, y2 + expand_y)
+                    
+                    bbox = BoundingBox(x1_expanded, y1_expanded, x2_expanded, y2_expanded)
+                    
+                    logger.debug(f"区域扩展: {label} 原始({x1},{y1},{x2},{y2}) -> 扩展({x1_expanded},{y1_expanded},{x2_expanded},{y2_expanded})")
                     
                     # 根据区域类型决定是否创建占位符内容
                     content = ""

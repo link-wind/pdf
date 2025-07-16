@@ -66,7 +66,7 @@ class OCRProcessor:
         self.config = config
         self.language = getattr(config, 'language', 'ch')
         self.use_gpu = getattr(config, 'use_gpu', True)
-        self.confidence_threshold = getattr(config, 'confidence_threshold', 0.8)
+        self.confidence_threshold = getattr(config, 'confidence_threshold', 0.9)
         self.det_db_thresh = getattr(config, 'det_db_thresh', 0.3)
         self.det_db_box_thresh = getattr(config, 'det_db_box_thresh', 0.6)
         self.ocr_version = getattr(config, 'ocr_version', 'PP-OCRv5')
@@ -122,7 +122,6 @@ class OCRProcessor:
             h, w = cropped_image.shape[:2]
             logger.debug(f"处理{region_type}区域，尺寸: {w}x{h}")
             
-            
             # 进行OCR识别
             result = self.ocr_engine.predict(cropped_image)
             logger.debug(f"OCR原始结果类型: {type(result)}, 长度: {len(result) if result else 0}")
@@ -166,7 +165,7 @@ class OCRProcessor:
                             # 动态调整置信度阈值
                             threshold = self.confidence_threshold
                             if region_type == "Title":
-                                threshold = max(0.5, self.confidence_threshold - 0.3)  # 降低30%
+                                threshold = max(0.4, self.confidence_threshold - 0.3)  # 降低30%
                             
                             if score >= threshold and text.strip():
                                 text_lines.append(text)
@@ -268,30 +267,17 @@ class OCRProcessor:
             return 0.0
     
     def _crop_region(self, image: np.ndarray, bbox: BoundingBox, region_type: str = None) -> np.ndarray:
-        """裁剪图像区域，根据区域类型使用固定值扩展"""
+        """裁剪图像区域"""
         try:
             h, w = image.shape[:2]
             
-            # 计算原始区域的宽高
-            region_width = bbox.x2 - bbox.x1
-            region_height = bbox.y2 - bbox.y1
+            # 直接使用原始边界框坐标
+            x1 = max(0, int(bbox.x1))
+            y1 = max(0, int(bbox.y1))
+            x2 = min(w, int(bbox.x2))
+            y2 = min(h, int(bbox.y2))
             
-            # 根据区域类型和尺寸特征确定扩展比例
-            scale_factor_x, scale_factor_y = self._get_scale_factors(region_width, region_height, region_type)
-            
-            # 使用固定值进行扩展
-            fixed_expansion_x = 60  # 固定扩展像素值
-            fixed_expansion_y = 30  # 固定扩展像素值
-            padding_x = scale_factor_x * fixed_expansion_x
-            padding_y = scale_factor_y * fixed_expansion_y
-            
-            # 计算扩展后的坐标
-            x1 = max(0, int(bbox.x1 - padding_x))
-            y1 = max(0, int(bbox.y1 - padding_y))
-            x2 = min(w, int(bbox.x2 + padding_x))
-            y2 = min(h, int(bbox.y2 + padding_y))
-            
-            # 确保坐标有效
+            # 确保坐标有效且区域不为空
             x1 = max(0, min(x1, w-1))
             y1 = max(0, min(y1, h-1))
             x2 = max(x1+1, min(x2, w))
@@ -301,7 +287,7 @@ class OCRProcessor:
             
             # 确保裁剪区域不为空
             if cropped.size == 0:
-                logger.warning(f"裁剪区域为空: {bbox}")
+                logger.warning(f"裁剪区域为空: {bbox}，使用原始图像")
                 return image
             
             return cropped
@@ -310,18 +296,7 @@ class OCRProcessor:
             logger.error(f"裁剪区域失败: {e}")
             return image
     
-    def _get_scale_factors(self, width: float, height: float, region_type: str = None) -> tuple[float, float]:
-        """根据区域特征确定扩展比例系数"""
-        
-        # 根据区域类型设置扩展系数
-        if region_type == 'title':
-            # 标题：水平扩展更多，垂直适中
-            base_x, base_y = 2.0, 1.6
-        else:
-            # 默认：均匀扩展
-            base_x, base_y = 1.4, 1.2
-        
-        return base_x, base_y
+
     
     def process_image(self, image_path: str) -> Dict[str, Any]:
         """处理整张图像的OCR识别"""

@@ -2,8 +2,8 @@ formula_parser:
   confidence_threshold: 0.7
   enable_latex_validation: true
   engine: pp_formulanet
-  max_formula_height: 1500
-  max_formula_width: 2000
+  max_formula_height: 1000
+  max_formula_width: 1500
   model_size: L
   # 大模型配置
   use_llm: false                   # 是否使用大模型解析公式
@@ -20,22 +20,23 @@ pix2text_processor:
   text_formula:
     languages:
       - en
-      - ch_sim
+      # - ch_sim
     
     # ONNX Runtime配置 - 禁用TensorRT
     onnx_providers:
+      # - TensorrtExecutionProvider
       - CUDAExecutionProvider
-      - CPUExecutionProvider
-    disable_tensorrt: false
+      # - CPUExecutionProvider
+    disable_tensorrt: False
     
     # 文本识别配置
     text:
       rec_model_name: "doc-densenet_lite_136-gru"
       rec_model_backend: "pytorch"
-      rec_model_fp: "C:\\Users\\28601\\AppData\\Roaming\\cnocr\\2.3\\doc-densenet_lite_136-gru"
+      # rec_model_fp: "C:\\Users\\28601\\AppData\\Roaming\\cnocr\\2.3\\doc-densenet_lite_136-gru"
 
 ocr_processor:
-  confidence_threshold: 0.8
+  confidence_threshold: 0.75
   engine: paddleocr
   language: en
   use_gpu: true
@@ -47,21 +48,21 @@ layout_analyzer:
   model_type: "doclayout"           # 模型类型
   
   # 推理配置
-  confidence_threshold: 0.6         # 置信度阈值
+  confidence_threshold: 0.45         # 置信度阈值
   iou_threshold: 0.45              # IoU阈值用于NMS
   use_gpu: true                  # 是否使用GPU
-  batch_size: 2                    # 批处理大小
+  batch_size: 1                    # 批处理大小
   max_det: 300                     # 最大检测数量
   input_size: 1280                 # 输入图像尺寸
   
   # 后处理配置
-  min_region_area: 100.0            # 最小区域面积
+  min_region_area: 50.0            # 最小区域面积
   
   # 可视化配置
-  visualization_enabled: true      # 启用可视化
+  visualization_enabled: false      # 启用可视化
   show_confidence: true           # 显示置信度
   show_class_names: true          # 显示类别名称
-  bbox_thickness: 2               # 边界框粗细
+  bbox_thickness: 1               # 边界框粗细
   
 md_generator:
   formula_format: latex
@@ -72,12 +73,22 @@ md_generator:
   max_line_length: 80
   preserve_formatting: false
   table_format: markdown
-  title_level_thresholds:
-    level_1: 16
-    level_2: 14
-    level_3: 12
-    level_4: 10
-    level_5: 8
+  # LLM标题优化配置
+  enable_llm_title_optimization: True  # 是否启用LLM标题优化
+  llm_title_threshold: 2               # 启用LLM优化的最小标题数量
+
+# LLM配置
+llm:
+  api_key: "sk-8be39e7cd0314b8db1ea6595ba740f17"                          # API密钥，请填入您的密钥
+  base_url: "https://api.deepseek.com" # API基础URL，支持OpenAI和DeepSeek
+  model: "deepseek-chat"               # 模型名称，支持gpt-3.5-turbo、gpt-4、deepseek-chat等
+  temperature: 0.7                     # 温度参数
+  max_tokens: 4096                     # 最大token数
+  timeout: 30                          # 超时时间（秒）
+  max_retries: 3                       # 最大重试次数
+  enabled: True                      # 是否启用LLM功能
+  provider: "deepseek"                 # LLM提供商：openai、deepseek
+  
 pdf_converter:
   dpi: 300
   format: PNG
@@ -96,7 +107,7 @@ table_parser:
   # RapidTable配置
   engine: rapid_table             # 表格解析引擎
   model_type: SLANETPLUS          # RapidTable模型类型 (SLANETPLUS, UNITABLE)
-  confidence_threshold: 0.7
+  confidence_threshold: 0.6
   use_gpu: true
   gpu_id: 0                       # GPU设备ID
   # 大模型配置

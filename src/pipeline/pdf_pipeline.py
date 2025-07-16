@@ -55,7 +55,7 @@ class PDFPipeline:
             # 基础处理器（必需）
             self.processors['pdf_converter'] = PDFConverter(self.settings.pdf_converter)
             self.processors['layout_analyzer'] = LayoutAnalyzer(self.settings.layout_analyzer)
-            self.processors['md_generator'] = MarkdownGenerator(self.settings.md_generator)
+            self.processors['md_generator'] = MarkdownGenerator(self.settings.md_generator, self.settings.llm)
             
             # 可选处理器
             if getattr(self.settings.ocr_processor, 'enabled', True):

@@ -85,7 +85,7 @@ class Pix2TextProcessor:
                         if not hasattr(self, 'use_gpu'):
                             self.use_gpu = torch.cuda.is_available()
                         if not hasattr(self, 'device'):
-                            self.device = 'gpu' if self.use_gpu else 'cpu'
+                            self.device = 'cuda' if self.use_gpu else 'cpu'
                         if not hasattr(self, 'enabled'):
                             self.enabled = True
                         if not hasattr(self, 'layout'):
@@ -108,7 +108,7 @@ class Pix2TextProcessor:
             class SimpleConfig:
                 def __init__(self):
                     self.use_gpu = torch.cuda.is_available()
-                    self.device = 'gpu' if self.use_gpu else 'cpu'
+                    self.device = 'cuda' if self.use_gpu else 'cpu'
                     self.enabled = True
                     self.layout = {'scores_thresh': 0.45}
                     import os
@@ -126,7 +126,7 @@ class Pix2TextProcessor:
         
         # 从配置对象获取参数
         self.use_gpu = getattr(processor_config, 'use_gpu', torch.cuda.is_available())
-        self.device = getattr(processor_config, 'device', 'gpu' if self.use_gpu else 'cpu')
+        self.device = getattr(processor_config, 'device', 'cuda' if self.use_gpu else 'cpu')
         self.enabled = getattr(processor_config, 'enabled', True)
         
         # 处理total_configs - 优先使用配置对象的格式
@@ -172,53 +172,28 @@ class Pix2TextProcessor:
                 logger.error("Pix2Text未安装，请使用pip install pix2text")
                 return
 
-            # 使用配置字典直接初始化
             total_configs = self.config.copy()
-            
-            # 添加设备配置
             if 'device' not in total_configs:
                 total_configs['device'] = self.device
-            
-            # 配置ONNX Runtime执行提供程序（禁用TensorRT）
-            if 'text_formula' in total_configs:
-                text_formula_config = total_configs['text_formula']
-                
-                # 扩展模型路径（支持 ~ 符号）
-                import os
-                if 'text' in text_formula_config and 'rec_model_fp' in text_formula_config['text']:
-                    text_formula_config['text']['rec_model_fp'] = os.path.expanduser(text_formula_config['text']['rec_model_fp'])
-                
-                # 如果配置中指定了ONNX提供程序，则应用
-                if 'onnx_providers' in text_formula_config:
-                    providers = text_formula_config['onnx_providers']
-                    logger.info(f"使用指定的ONNX执行提供程序: {providers}")
-                    
-                    # 设置环境变量来配置ONNX Runtime
-                    import os
-                    os.environ['ORT_TENSORRT_UNAVAILABLE'] = '1'  # 禁用TensorRT
-                    
-                    # 将providers配置传递给text_formula
-                    if 'text' not in text_formula_config:
-                        text_formula_config['text'] = {}
-                    
-                    # 为text组件设置ONNX providers
-                    text_formula_config['text']['onnx_providers'] = providers
-                
-                # 如果明确禁用TensorRT
-                if text_formula_config.get('disable_tensorrt', False):
-                    import os
-                    os.environ['ORT_TENSORRT_UNAVAILABLE'] = '1'
-                    logger.info("已禁用TensorRT执行提供程序")
 
-            # 添加调试信息
-            logger.info(f"Pix2Text配置: {total_configs}")
-            
+            text_formula_config = total_configs.get('text_formula', {})
+            text_formula_config['text'] = text_formula_config.get('text', {})
+            text_formula_config['text']['onnx_providers'] = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+            logger.info(f"ONNX Providers 配置: {text_formula_config['text']['onnx_providers']}")
+
+            import os
+            os.environ['ORT_TENSORRT_UNAVAILABLE'] = '1'  # 禁用 TensorRT
+            logger.info("已禁用 TensorRT 执行提供程序")
+
+            logger.info(f"Pix2Text 配置: {total_configs}")
             self.p2t_engine = Pix2Text.from_config(total_configs=total_configs)
-
-            logger.info(f"Pix2Text引擎已初始化: 设备={self.device}")
+            logger.info(f"Pix2Text 引擎初始化成功: 设备={self.device}")
+            # 验证可用提供程序
+            import onnxruntime as ort
+            logger.info(f"可用 ONNX 执行提供程序: {ort.get_available_providers()}")
 
         except Exception as e:
-            logger.error(f"Pix2Text引擎初始化失败: {e}")
+            logger.error(f"Pix2Text 引擎初始化失败: {e}")
             self.p2t_engine = None
     
     def process_region(self, region: Region, image: np.ndarray) -> str:
@@ -244,7 +219,7 @@ class Pix2TextProcessor:
                 pil_image = Image.fromarray(cropped_image)
 
             # 进行识别并直接返回结果
-            results = self.p2t_engine.recognize_text_formula(pil_image, return_text=True)
+            results = self.p2t_engine.recognize_text_formula(pil_image,resized_shape=512, return_text=True,mfr_batch_size=8)
             
             # 根据文档，当 return_text=True 时，直接返回一个字符串
             if isinstance(results, str):

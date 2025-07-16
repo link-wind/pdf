@@ -171,6 +171,20 @@ class ReadingOrderConfig:
     
 
 @dataclass
+class LLMConfig:
+    """LLM配置"""
+    api_key: str = "sk-8be39e7cd0314b8db1ea6595ba740f17"  # API密钥
+    base_url: str = "https://api.deepseek.com"  # API基础URL
+    model: str = "deepseek-chat"  # 模型名称
+    temperature: float = 0.7  # 温度参数
+    max_tokens: int = 4096  # 最大token数
+    timeout: int = 30  # 超时时间（秒）
+    max_retries: int = 3  # 最大重试次数
+    enabled: bool = True  # 是否启用LLM功能
+    provider: str = "deepseek"  # LLM提供商：openai、deepseek
+
+
+@dataclass
 class MarkdownGeneratorConfig:
     """Markdown生成器配置"""
     include_metadata: bool = True
@@ -189,6 +203,9 @@ class MarkdownGeneratorConfig:
         'level_4': 16,    # 四级标题字体大小阈值
         'level_5': 14,    # 五级标题字体大小阈值
     })
+    # LLM标题优化配置
+    enable_llm_title_optimization: bool = False  # 是否启用LLM标题优化
+    llm_title_threshold: int = 2  # 启用LLM优化的最小标题数量
 
 
 @dataclass
@@ -202,6 +219,7 @@ class Settings:
     formula_parser: FormulaParserConfig = field(default_factory=FormulaParserConfig)
     reading_order: ReadingOrderConfig = field(default_factory=ReadingOrderConfig)
     md_generator: MarkdownGeneratorConfig = field(default_factory=MarkdownGeneratorConfig)
+    llm: LLMConfig = field(default_factory=LLMConfig)
     
     def __init__(self, config_path: Optional[str] = None):
         """初始化配置
@@ -218,6 +236,7 @@ class Settings:
         self.formula_parser = FormulaParserConfig()
         self.reading_order = ReadingOrderConfig()
         self.md_generator = MarkdownGeneratorConfig()
+        self.llm = LLMConfig()
         
         # 如果没有指定配置文件，使用项目根目录下的config.yaml
         if config_path is None:
@@ -321,6 +340,13 @@ class Settings:
                     self.md_generator, 
                     config_data['md_generator']
                 )
+            
+            # 更新LLM配置
+            if 'llm' in config_data:
+                self._update_dataclass_from_dict(
+                    self.llm, 
+                    config_data['llm']
+                )
                 
         except Exception as e:
             logger.error(f"配置更新失败: {str(e)}")
@@ -357,6 +383,7 @@ class Settings:
                 'formula_parser': self._dataclass_to_dict(self.formula_parser),
                 'reading_order': self._dataclass_to_dict(self.reading_order),
                 'md_generator': self._dataclass_to_dict(self.md_generator),
+                'llm': self._dataclass_to_dict(self.llm),
             }
             
             config_file = Path(config_path)
