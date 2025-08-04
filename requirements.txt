@@ -23,6 +23,7 @@ pandas==2.0.2             # 数据处理
 sympy==1.12              # 符号数学库
 matplotlib==3.7.5        # 绘图库
 numpy==1.24.4            # 数值计算
+pylatexenc==2.10         # LaTeX解析和处理
 
 # 机器学习和深度学习（用于版式分析）
 transformers==4.37.0     # 预训练模型

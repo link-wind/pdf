@@ -207,27 +207,15 @@ class LayoutAnalyzer:
                     region_width = x2 - x1
                     region_height = y2 - y1
                     
-                    # 根据区域类型设置不同的扩展比例
+                    # 只对标题区域进行扩展，其他区域使用原始边界框
                     if label == 'Title':
                         # 标题区域：适度扩展，特别是垂直方向
-                        expand_x = max(25, int(region_width * 0.18))  # 水平扩展5%
+                        expand_x = max(40, int(region_width * 0.18))  # 水平扩展5%
                         expand_y = max(35, int(region_height * 0.30))  # 垂直扩展15%
-                    elif label in ['IsolateFormula', 'FormulaCaption']:
-                        # 公式区域：需要更多上下文
-                        expand_x = max(5, int(region_width * 0.05))  # 水平扩展8%
-                        expand_y = max(1, int(region_height * 0.02))  # 垂直扩展20%
-                    elif label in ['Table', 'TableCaption', 'TableFootnote']:
-                        # 表格区域：保守扩展
-                        expand_x = max(5, int(region_width * 0.03))  # 水平扩展3%
-                        expand_y = max(5, int(region_height * 0.02))  # 垂直扩展8%
-                    elif label in ['Figure', 'FigureCaption']:
-                        # 图片区域：轻微扩展
-                        expand_x = max(4, int(region_width * 0.04))  # 水平扩展4%
-                        expand_y = max(6, int(region_height * 0.10))  # 垂直扩展10%
                     else:
-                        # 默认文本区域：平衡扩展
-                        expand_x = max(1, int(region_width * 0.01))  # 水平扩展6%
-                        expand_y = max(1, int(region_height * 0.01))  # 垂直扩展12%
+                        # 其他区域不扩展，使用原始边界框
+                        expand_x = 0
+                        expand_y = 0
                     
                     # 应用扩展并确保不超出图像边界
                     image_height, image_width = image_shape[:2]

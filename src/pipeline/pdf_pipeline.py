@@ -69,7 +69,7 @@ class PDFPipeline:
                 self.processors['table_parser'] = TableParser(self.settings.table_parser)
             
             if getattr(self.settings.formula_parser, 'enabled', True):
-                self.processors['formula_parser'] = FormulaParser(self.settings.formula_parser)
+                self.processors['formula_parser'] = FormulaParser(self.settings)  # 传递整个配置
             
             # 阅读顺序分析器
             self.processors['reading_order'] = ReadingOrderAnalyzer(self.settings.reading_order)

@@ -182,3 +182,81 @@ Corrected title list:
     if dict_completion is None:
         logger.error("Failed to decode dict after maximum retries.")
         return None
+
+def correct_formula_with_llm(latex_formula: str, llm_config) -> str:
+    """使用LLM校正LaTeX公式
+
+    Args:
+        latex_formula: 待校正的LaTeX公式字符串
+        llm_config: LLM配置信息（可以是字典或配置对象）
+
+    Returns:
+        str: 校正后的LaTeX公式字符串，如果失败则返回原始字符串
+    """
+    if not llm_config or not latex_formula:
+        return latex_formula
+
+    # 处理配置对象或字典
+    if hasattr(llm_config, 'api_key'):
+        # 配置对象
+        api_key = getattr(llm_config, 'api_key', None)
+        base_url = getattr(llm_config, 'base_url', "https://api.deepseek.com")
+        model = getattr(llm_config, 'model', "deepseek-chat")
+        temperature = getattr(llm_config, 'temperature', 0.2)
+        max_retries = getattr(llm_config, 'max_retries', 2)
+        timeout = getattr(llm_config, 'timeout', 15)
+    else:
+        # 字典
+        api_key = llm_config.get("api_key")
+        base_url = llm_config.get("base_url", "https://api.deepseek.com")
+        model = llm_config.get("model", "deepseek-chat")
+        temperature = llm_config.get("temperature", 0.2)
+        max_retries = llm_config.get("max_retries", 2)
+        timeout = llm_config.get("timeout", 15)
+    
+    if not api_key:
+        logger.error("LLM API密钥未配置")
+        return latex_formula
+
+    try:
+        client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout
+        )
+    except Exception as e:
+        logger.error(f"创建OpenAI客户端失败: {e}")
+        return latex_formula
+
+    prompt = f"""Please correct the following LaTeX formula to make it valid. Only return the corrected formula, without any explanations or surrounding text.
+
+Original formula:
+`{latex_formula}`
+
+Corrected formula:
+"""
+
+    retry_count = 0
+    while retry_count < max_retries:
+        try:
+            completion = client.chat.completions.create(
+                model=model,
+                messages=[{'role': 'user', 'content': prompt}],
+                temperature=temperature,
+            )
+            corrected_formula = completion.choices[0].message.content.strip()
+            # 移除可能存在的代码块标记
+            if corrected_formula.startswith('`') and corrected_formula.endswith('`'):
+                corrected_formula = corrected_formula[1:-1]
+            if corrected_formula.startswith('```') and corrected_formula.endswith('```'):
+                corrected_formula = corrected_formula[3:-3].strip()
+            
+            logger.info(f"原始公式: {latex_formula}")
+            logger.info(f"LLM校正后公式: {corrected_formula}")
+            return corrected_formula
+        except Exception as e:
+            logger.warning(f"使用LLM校正公式失败 (尝试 {retry_count + 1}/{max_retries}): {e}")
+            retry_count += 1
+
+    logger.error("LLM公式校正达到最大重试次数，返回原始公式")
+    return latex_formula

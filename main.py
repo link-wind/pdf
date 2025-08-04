@@ -285,7 +285,7 @@ def process_batch(args):
         config = load_config(args.config)
         
         # 获取所有PDF文件
-        input_dir = Path("data/input/samples")
+        input_dir = Path("data/input/dataset_B")
         pdf_files = list(input_dir.glob("*.pdf"))
         
         logger.info(f"找到 {len(pdf_files)} 个PDF文件")
